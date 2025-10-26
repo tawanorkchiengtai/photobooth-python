@@ -1,4 +1,5 @@
 Pillow==10.4.0
 kivy
-picamera2
-gpiozero
+opencv-python
+# picamera2  # Pi only, install via apt
+# gpiozero   # Pi only, install via apt

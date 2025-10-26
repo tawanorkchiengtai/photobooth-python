@@ -9,8 +9,12 @@ from typing import List, Tuple, Optional
 
 from PIL import Image, ImageOps
 
+import platform
+
 from kivy.config import Config
-Config.set('graphics', 'fullscreen', 'auto')
+# Don't force fullscreen on macOS during development
+if platform.system() != 'Darwin':
+    Config.set('graphics', 'fullscreen', 'auto')
 Config.set('kivy', 'log_enable', '0')
 Config.set('input', 'mouse', 'mouse,disable_multitouch')
 
@@ -27,8 +31,18 @@ from kivy.uix.modalview import ModalView
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
 
-from picamera2 import Picamera2
-from libcamera import Transform
+try:
+    from picamera2 import Picamera2
+    from libcamera import Transform
+    HAS_PICAMERA = True
+except Exception:
+    HAS_PICAMERA = False
+    try:
+        import cv2
+        import numpy as np
+        HAS_OPENCV = True
+    except Exception:
+        HAS_OPENCV = False
 
 try:
     from gpiozero import Button as GpioButton
@@ -104,16 +118,94 @@ class PhotoboothRoot(FloatLayout):
         self.preview = PreviewWidget()
         self.add_widget(self.preview)
 
-        self.hud = Label(text="", pos=(12, Window.height - 40), font_size=16, color=(1, 1, 1, 1))
+        # HUD with proper positioning (top-left)
+        self.hud = Label(
+            text="Loading...",
+            font_size=18,
+            color=(1, 1, 1, 1),
+            size_hint=(None, None),
+            pos_hint={'x': 0, 'top': 1},
+            padding=(10, 10),
+            halign='left',
+            valign='top'
+        )
+        self.hud.bind(texture_size=self.hud.setter('size'))
         self.add_widget(self.hud)
 
-        self.countdown = Label(text="", font_size=140, bold=True, color=(1, 1, 1, 1))
-        self.add_widget(self.countdown)
-        self.countdown.opacity = 0
+        # Status bar (top-right): camera, printer, settings hint
+        self.status = Label(
+            text="",
+            font_size=16,
+            color=(1, 1, 1, 1),
+            size_hint=(None, None),
+            pos_hint={'right': 1, 'top': 1},
+            halign='right',
+            valign='top'
+        )
+        self.status.bind(texture_size=self.status.setter('size'))
+        self.add_widget(self.status)
 
-        self.quick = KivyImage(size_hint=(0.8, 0.8), allow_stretch=True, keep_ratio=True)
-        self.add_widget(self.quick)
+        # Countdown overlay centered
+        self.countdown = Label(
+            text="",
+            font_size=140,
+            bold=True,
+            color=(1, 1, 1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
+        )
+        self.countdown.opacity = 0
+        self.add_widget(self.countdown)
+
+        # Center image overlay (quick review or composed image)
+        self.quick = KivyImage(
+            size_hint=(0.8, 0.8),
+            allow_stretch=True,
+            keep_ratio=True,
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
+        )
         self.quick.opacity = 0
+        self.add_widget(self.quick)
+
+        # Titles / instructions overlays
+        self.title = Label(
+            text="",
+            font_size=36,
+            bold=True,
+            color=(1, 1, 1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.74}
+        )
+        self.title.opacity = 0
+        self.add_widget(self.title)
+
+        self.subtitle = Label(
+            text="",
+            font_size=20,
+            color=(1, 1, 1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.66}
+        )
+        self.subtitle.opacity = 0
+        self.add_widget(self.subtitle)
+
+        self.footer = Label(
+            text="",
+            font_size=18,
+            color=(1, 1, 1, 1),
+            pos_hint={'center_x': 0.5, 'y': 0.02}
+        )
+        self.footer.opacity = 0
+        self.add_widget(self.footer)
+
+        # Selection thumbnails container (created on demand)
+        from kivy.uix.boxlayout import BoxLayout as KivyBox
+        self.selection_box = KivyBox(
+            orientation='horizontal',
+            spacing=20,
+            size_hint=(0.9, None),
+            height=320,
+            pos_hint={'center_x': 0.5, 'center_y': 0.55}
+        )
+        self.selection_box.opacity = 0
+        self.add_widget(self.selection_box)
 
     def update_hud(self, state: ScreenState, filter_name: str, template_name: str, remaining: int):
         self.hud_text = f"State: {state} • Filter: {filter_name} • Template: {template_name} • Remaining: {max(remaining,0)}"
@@ -127,22 +219,57 @@ class PhotoboothRoot(FloatLayout):
     def hide_countdown(self):
         self.countdown.opacity = 0
 
-    def show_quick_texture(self, tex: Texture, seconds: float = 1.2):
+    def show_quick_texture(self, tex: Texture, seconds: Optional[float] = 1.2):
         self.quick.texture = tex
         self.quick.opacity = 1
-        Clock.schedule_once(lambda *_: self.hide_quick(), seconds)
+        if seconds:
+            Clock.schedule_once(lambda *_: self.hide_quick(), seconds)
 
     def hide_quick(self):
         self.quick.opacity = 0
 
+    # Overlay helpers
+    def set_status(self, camera_label: str, printer_label: str):
+        self.status.text = f"Camera: {camera_label}    Printer: {printer_label}    Settings (O)"
+
+    def set_overlay(self, title: str = "", subtitle: str = "", footer: str = "", visible: bool = True):
+        self.title.text = title
+        self.subtitle.text = subtitle
+        self.footer.text = footer
+        self.title.opacity = 1 if visible and title else 0
+        self.subtitle.opacity = 1 if visible and subtitle else 0
+        self.footer.opacity = 1 if visible and footer else 0
+
+    def show_selection(self, thumbs: List[Texture], cursor_index: int, selected_indices: List[int]):
+        # Rebuild thumbnails each time for simplicity
+        from kivy.uix.image import Image as KImg
+        self.selection_box.clear_widgets()
+        for i, tex in enumerate(thumbs):
+            w = KImg(texture=tex, allow_stretch=True, keep_ratio=True)
+            # Emphasize cursor by scaling
+            w.size_hint = (0.28, 1.0) if i == cursor_index else (0.24, 1.0)
+            # Dim unselected when selection made
+            if selected_indices and (i not in selected_indices):
+                w.color = (1, 1, 1, 0.7)
+            self.selection_box.add_widget(w)
+        self.selection_box.opacity = 1
+
+    def hide_selection(self):
+        self.selection_box.opacity = 0
+
 
 class PhotoboothApp(App):
     def build(self):
-        Window.fullscreen = True
-        try:
-            Window.show_cursor = False
-        except Exception:
-            pass
+        # On Mac, use windowed mode for testing; on Pi, use fullscreen
+        if platform.system() == 'Darwin':
+            Window.size = (1280, 720)
+            Window.show_cursor = True
+        else:
+            Window.fullscreen = True
+            try:
+                Window.show_cursor = False
+            except Exception:
+                pass
 
         self.state: ScreenState = ScreenState.ATTRACT
         self.last_input_ts = time.time()
@@ -162,20 +289,15 @@ class PhotoboothApp(App):
         self.printer_name = ""
         self._load_printer_name()
 
-        self.picam = Picamera2()
-        self.video_config = self.picam.create_preview_configuration(
-            main={"size": (1280, 720), "format": "RGB888"},
-            transform=Transform(hflip=1),
-        )
-        self.still_config = self.picam.create_still_configuration(
-            main={"size": (1920, 1080), "format": "RGB888"},
-            transform=Transform(hflip=1),
-        )
-        self.picam.configure(self.video_config)
-        self.picam.start()
+        # Initialize camera (Picamera2 on Pi, OpenCV on Mac)
+        self._init_camera()
 
         self.root_widget = PhotoboothRoot()
         self._update_hud()
+        # Initial status + attract overlay
+        cam_label = "Pi Camera" if HAS_PICAMERA else ("FaceTime HD Camera" if not HAS_PICAMERA else "Camera")
+        self.root_widget.set_status(cam_label, self.printer_name or "-")
+        self._show_attract()
 
         Clock.schedule_interval(self._update_preview, 1 / 20.0)
         Clock.schedule_interval(self._check_inactivity, 1.0)
@@ -187,15 +309,64 @@ class PhotoboothApp(App):
 
     def _load_templates(self):
         try:
-            return json.loads(TEMPLATES_PATH.read_text())
+            tpls = json.loads(TEMPLATES_PATH.read_text())
         except Exception:
-            return [{"id": "single_full", "name": "Single Full", "slots": 1,
+            tpls = [{"id": "single_full", "name": "Single Full", "slots": 1,
                      "rects": [{"leftPct": 10, "topPct": 15, "widthPct": 80, "heightPct": 70}]}]
+        # If only one template exists, add a couple of built-ins so Left/Right works during dev
+        if isinstance(tpls, list) and len(tpls) <= 1:
+            tpls = tpls + [
+                {"id": "two_stack", "name": "Two Vertical", "slots": 2,
+                 "rects": [
+                     {"leftPct": 10, "topPct": 8, "widthPct": 80, "heightPct": 42},
+                     {"leftPct": 10, "topPct": 50, "widthPct": 80, "heightPct": 42}
+                 ]},
+                {"id": "three_strip", "name": "Three Strip", "slots": 3,
+                 "rects": [
+                     {"leftPct": 20, "topPct": 8, "widthPct": 60, "heightPct": 28},
+                     {"leftPct": 20, "topPct": 36, "widthPct": 60, "heightPct": 28},
+                     {"leftPct": 20, "topPct": 64, "widthPct": 60, "heightPct": 28}
+                 ]}
+            ]
+        return tpls
+
+    def _init_camera(self):
+        """Initialize camera - Picamera2 on Pi, OpenCV on Mac"""
+        if HAS_PICAMERA:
+            self.use_opencv = False
+            self.picam = Picamera2()
+            self.video_config = self.picam.create_preview_configuration(
+                main={"size": (1280, 720), "format": "RGB888"},
+                transform=Transform(hflip=1),
+            )
+            self.still_config = self.picam.create_still_configuration(
+                main={"size": (1920, 1080), "format": "RGB888"},
+                transform=Transform(hflip=1),
+            )
+            self.picam.configure(self.video_config)
+            self.picam.start()
+            print("✓ Using Picamera2 (Raspberry Pi)")
+        elif HAS_OPENCV:
+            self.use_opencv = True
+            self.cap = cv2.VideoCapture(0)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            print("✓ Using OpenCV (MacBook camera)")
+        else:
+            raise RuntimeError("No camera backend available. Install picamera2 (Pi) or opencv-python (Mac)")
 
     def _update_preview(self, *_):
         try:
-            frame = self.picam.capture_array("main")
-            self.root_widget.preview.show_frame(frame)
+            if self.use_opencv:
+                ret, frame = self.cap.read()
+                if ret:
+                    # Convert BGR to RGB and flip horizontally for mirror effect
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    frame = cv2.flip(frame, 1)
+                    self.root_widget.preview.show_frame(frame)
+            else:
+                frame = self.picam.capture_array("main")
+                self.root_widget.preview.show_frame(frame)
         except Exception:
             pass
 
@@ -236,8 +407,11 @@ class PhotoboothApp(App):
             if key in (275, 65363):
                 self._on_input("next")
                 return True
-            if key in (65293,):
+            if key in (65293, 13):
                 self._on_input("enter")
+                return True
+            if key in (27,):  # ESC to cancel
+                self._on_input("cancel")
                 return True
             return False
         Window.bind(on_key_down=on_key)
@@ -264,7 +438,25 @@ class PhotoboothApp(App):
 
         if self.state == ScreenState.COUNTDOWN:
             if action == "shutter":
+                # cancel countdown timer and capture instantly
+                try:
+                    Clock.unschedule(self.count_ev)
+                except Exception:
+                    pass
+                self.root_widget.hide_countdown()
                 self._capture_now()
+            elif action in ("next", "prev"):
+                # allow adjusting template during countdown; reset countdown
+                try:
+                    Clock.unschedule(self.count_ev)
+                except Exception:
+                    pass
+                self.root_widget.hide_countdown()
+                if action == "next":
+                    self._cycle_template(+1)
+                else:
+                    self._cycle_template(-1)
+                self._begin_countdown()
             return
 
         if self.state == ScreenState.QUICK_REVIEW:
@@ -285,7 +477,8 @@ class PhotoboothApp(App):
                         self.selected_indices.append(self.selection_cursor)
                 self._update_selection_hint()
             elif action == "enter":
-                if len(self.selected_indices) == self.current_template["slots"]:
+                # proceed when enough selected; otherwise ignore
+                if len(self.selected_indices) >= self.current_template["slots"]:
                     self._compose_and_show()
                     self.state = ScreenState.REVIEW
                     self._update_hud()
@@ -311,11 +504,22 @@ class PhotoboothApp(App):
         self.to_take = self.current_template["slots"] + 2
         self.state = ScreenState.TEMPLATE
         self._update_hud()
+        self._show_template()
 
     def _cycle_template(self, delta: int):
+        if not self.templates:
+            return
         self.template_index = (self.template_index + delta) % len(self.templates)
         self.current_template = self.templates[self.template_index]
-        self._update_hud(to_take=self.current_template["slots"] + 2)
+        # Update toTake following N+2 rule (1->3, 2->4, 3->5)
+        self.to_take = self.current_template["slots"] + 2
+        self.taken_count = 0
+        self._update_hud(to_take=self.to_take)
+        # refresh overlays per state
+        if self.state == ScreenState.TEMPLATE:
+            self._show_template()
+        elif self.state == ScreenState.COUNTDOWN:
+            self._show_template()
 
     def _cycle_filter(self, delta: int):
         self.filter_index = (self.filter_index + delta) % len(FILTERS)
@@ -329,6 +533,8 @@ class PhotoboothApp(App):
         self._update_hud()
         self.count_val = COUNTDOWN_SECONDS
         self.root_widget.show_countdown(self.count_val)
+        self.root_widget.set_overlay("", "", "")
+        self.root_widget.hide_selection()
         self.count_ev = Clock.schedule_interval(self._countdown_tick, 1.0)
 
     def _countdown_tick(self, dt):
@@ -350,12 +556,23 @@ class PhotoboothApp(App):
         out_path = PHOTO_DIR / f"{ts}_{len(self.captures)+1}.jpg"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            self.picam.switch_mode_and_capture_file(self.still_config, str(out_path))
-        except Exception:
-            arr = self.picam.capture_array("main")
-            img = Image.fromarray(arr, mode="RGB")
-            img.save(out_path, "JPEG", quality=95)
+        if self.use_opencv:
+            # Capture from OpenCV
+            ret, frame = self.cap.read()
+            if ret:
+                # Convert BGR to RGB and flip for mirror effect
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.flip(frame, 1)
+                img = Image.fromarray(frame, mode="RGB")
+                img.save(out_path, "JPEG", quality=95)
+        else:
+            # Capture from Picamera2
+            try:
+                self.picam.switch_mode_and_capture_file(self.still_config, str(out_path))
+            except Exception:
+                arr = self.picam.capture_array("main")
+                img = Image.fromarray(arr, mode="RGB")
+                img.save(out_path, "JPEG", quality=95)
 
         self.captures.append(out_path)
         self.taken_count += 1
@@ -370,11 +587,15 @@ class PhotoboothApp(App):
             pass
 
         if self.taken_count >= self.current_template["slots"] + 2:
-            self.state = ScreenState.SELECTION
-            self.selection_cursor = 0
-            self.selected_indices = []
-            self._update_selection_hint()
-            self._update_hud()
+            # Short pause before entering selection (to mimic quick review pause)
+            def go_selection(*_):
+                self.state = ScreenState.SELECTION
+                self.selection_cursor = 0
+                self.selected_indices = []
+                self._update_selection_hint()
+                self._show_selection_ui()
+                self._update_hud()
+            Clock.schedule_once(go_selection, 0.6)
         else:
             self._begin_countdown()
 
@@ -383,6 +604,23 @@ class PhotoboothApp(App):
         cursor = self.selection_cursor + 1
         selected = len(self.selected_indices)
         self.root_widget.hud.text = f"Selection: choose {n} • cursor {cursor}/{len(self.captures)} • selected {selected}/{n}"
+        # Build thumbnail textures for selection UI
+        thumbs: List[Texture] = []
+        for p in self.captures:
+            try:
+                img = Image.open(p).convert("RGB")
+                # make thumb
+                tw, th = 480, 320
+                scale = min(tw / img.width, th / img.height)
+                nw, nh = int(img.width * scale), int(img.height * scale)
+                thumb = img.resize((nw, nh), Image.LANCZOS)
+                tex = Texture.create(size=thumb.size, colorfmt='rgb')
+                tex.blit_buffer(thumb.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+                tex.flip_vertical()
+                thumbs.append(tex)
+            except Exception:
+                continue
+        self.root_widget.show_selection(thumbs, self.selection_cursor, self.selected_indices)
 
     def _compose_and_show(self):
         paths = [self.captures[i] for i in self.selected_indices]
@@ -393,7 +631,11 @@ class PhotoboothApp(App):
             kv_tex = Texture.create(size=img.size, colorfmt="rgb")
             kv_tex.blit_buffer(img.tobytes(), colorfmt="rgb", bufferfmt="ubyte")
             kv_tex.flip_vertical()
-            self.root_widget.show_quick_texture(kv_tex, seconds=2.0)
+            # Keep composed visible during review (no auto-hide)
+            self.root_widget.show_quick_texture(kv_tex, seconds=None)
+            self._show_review()
+            # hide selection UI explicitly when entering review
+            self.root_widget.hide_selection()
         except Exception:
             pass
 
@@ -439,11 +681,19 @@ class PhotoboothApp(App):
     def _print(self):
         if not self.last_composed_path:
             return
+        # Show printing overlay
+        self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
+        self.root_widget.hide_selection()
         args = ["lp"]
         if self.printer_name:
             args += ["-d", self.printer_name]
         args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", str(self.last_composed_path)]
-        subprocess.run(args)
+        proc = subprocess.run(args, capture_output=True)
+        if proc.returncode != 0:
+            err = proc.stderr.decode('utf-8', 'ignore')
+            self.root_widget.set_overlay(title="Print failed", subtitle=err[:120], footer="Press Space/Enter to retry", visible=True)
+        else:
+            self.root_widget.set_overlay(title="Printed", subtitle="Job sent successfully", footer="", visible=True)
 
     def _open_settings(self):
         SettingsModal(self.printer_name, on_save=self._save_printer).open()
@@ -470,6 +720,7 @@ class PhotoboothApp(App):
         self.to_take = 0
         self.last_composed_path = None
         self._update_hud()
+        self._show_attract()
 
     def _update_hud(self, to_take: Optional[int] = None):
         if to_take is not None:
@@ -479,7 +730,51 @@ class PhotoboothApp(App):
                                     self.current_template.get("name", "Template"),
                                     remaining)
 
+    # ---------- UI overlay convenience ----------
+    def _show_attract(self):
+        self.root_widget.set_overlay(
+            title="Pay attendant to start!",
+            subtitle="(Press S to begin in dev)",
+            footer="",
+            visible=True,
+        )
+        self.root_widget.hide_selection()
+        self.root_widget.hide_quick()
+
+    def _show_template(self):
+        n = self.current_template["slots"]
+        self.root_widget.set_overlay(
+            title="Select your template",
+            subtitle=f"Use Left/Right to change. Photos to take: {n+2}",
+            footer="Press Space to start",
+            visible=True,
+        )
+        self.root_widget.hide_selection()
+        self.root_widget.hide_quick()
+
+    def _show_selection_ui(self):
+        need = self.current_template["slots"]
+        self.root_widget.set_overlay(
+            title=f"Choose {need} photo(s)",
+            subtitle="Left/Right to move • Space to Select/Deselect",
+            footer=f"Selected {len(self.selected_indices)} / {need}",
+            visible=True,
+        )
+        self.root_widget.hide_quick()
+
+    def _show_review(self):
+        self.root_widget.set_overlay(
+            title="Review",
+            subtitle="L/R to change filter",
+            footer="Press Space/Enter to print",
+            visible=True,
+        )
+
 
 if __name__ == "__main__":
+    if not HAS_PICAMERA and not HAS_OPENCV:
+        print("ERROR: No camera backend available!")
+        print("  On Raspberry Pi: sudo apt install python3-picamera2")
+        print("  On Mac/Dev: pip3 install opencv-python")
+        exit(1)
     PhotoboothApp().run()
-
