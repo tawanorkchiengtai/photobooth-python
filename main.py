@@ -330,6 +330,7 @@ class PhotoboothApp(App):
         self._load_printer_name()
 
         # Initialize camera (Picamera2 on Pi, OpenCV on Mac)
+        print("[DEBUG] Initializing camera...")
         self._init_camera()
 
         self.root_widget = PhotoboothRoot()
@@ -337,12 +338,15 @@ class PhotoboothApp(App):
         # Initial status + attract overlay
         cam_label = "Pi Camera" if HAS_PICAMERA else ("FaceTime HD Camera" if not HAS_PICAMERA else "Camera")
         self.root_widget.set_status(cam_label, self.printer_name or "-")
+        print(f"[DEBUG] Camera initialized: {cam_label}")
+        print(f"[DEBUG] Printer configured: {self.printer_name or 'None'}")
         self._show_attract()
 
         Clock.schedule_interval(self._update_preview, 1 / 20.0)
         Clock.schedule_interval(self._check_inactivity, 1.0)
+        # Clock.schedule_interval(self._check_gpio_status, 5.0)  # Comment out GPIO status check
 
-        self._bind_keys_for_dev()
+        # self._bind_keys_for_dev()  # Comment out keyboard controls
         self._setup_gpio()
 
         return self.root_widget
@@ -428,6 +432,15 @@ class PhotoboothApp(App):
                 # Use try-catch for Picamera2 to handle buffer errors gracefully
                 try:
                     frame = self.picam.capture_array("main")
+                    # Debug: print frame info
+                    if hasattr(self, '_frame_count'):
+                        self._frame_count += 1
+                    else:
+                        self._frame_count = 1
+                    if self._frame_count % 30 == 0:  # Print every 30 frames (about once per second)
+                        print(f"[DEBUG] Frame shape: {frame.shape}, dtype: {frame.dtype}, min: {frame.min()}, max: {frame.max()}")
+                    # Fix color channel swapping for preview only (RGB to BGR)
+                    frame = frame[:, :, ::-1]  # Reverse RGB to BGR for display
                     self.root_widget.preview.show_frame(frame)
                 except Exception as e:
                     # If capture fails, try to restart the camera
@@ -452,72 +465,126 @@ class PhotoboothApp(App):
 
     def _setup_gpio(self):
         if not HAS_GPIO:
+            print("[DEBUG] GPIO not available, skipping GPIO setup")
             return
         try:
+            print("[DEBUG] Setting up GPIO buttons...")
+            
+            # # Close existing buttons if they exist
+            # if hasattr(self, 'btn_next') and self.btn_next:
+            #     self.btn_next.close()
+            # if hasattr(self, 'btn_prev') and self.btn_prev:
+            #     self.btn_prev.close()
+            # if hasattr(self, 'btn_shutter') and self.btn_shutter:
+            #     self.btn_shutter.close()
+            # if hasattr(self, 'btn_enter') and self.btn_enter:
+            #     self.btn_enter.close()
+
             self.btn_next = GpioButton(GPIO_NEXT, pull_up=True, bounce_time=0.05)
             self.btn_prev = GpioButton(GPIO_PREV, pull_up=True, bounce_time=0.05)
             self.btn_shutter = GpioButton(GPIO_SHUTTER, pull_up=True, bounce_time=0.05)
             self.btn_enter = GpioButton(GPIO_ENTER, hold_time=3.0, pull_up=True, bounce_time=0.05)
 
-            self.btn_next.when_pressed = lambda: self._on_input("next")
-            self.btn_prev.when_pressed = lambda: self._on_input("prev")
-            self.btn_shutter.when_pressed = lambda: self._on_input("shutter")
-            self.btn_enter.when_pressed = lambda: self._on_input("enter")
-            self.btn_enter.when_held = lambda: self._on_input("cancel")
-        except Exception:
+            # Bind events with debug output - use Clock.schedule_once to avoid thread issues
+            self.btn_next.when_pressed = lambda: Clock.schedule_once(lambda dt: (print("[DEBUG] GPIO Next pressed"), self._on_input("next")), 0)
+            self.btn_prev.when_pressed = lambda: Clock.schedule_once(lambda dt: (print("[DEBUG] GPIO Prev pressed"), self._on_input("prev")), 0)
+            self.btn_shutter.when_pressed = lambda: Clock.schedule_once(lambda dt: (print("[DEBUG] GPIO Shutter pressed"), self._on_input("shutter")), 0)
+            self.btn_enter.when_pressed = lambda: Clock.schedule_once(lambda dt: (print("[DEBUG] GPIO Enter pressed"), self._on_input("enter")), 0)
+            self.btn_enter.when_held = lambda: Clock.schedule_once(lambda dt: (print("[DEBUG] GPIO Enter held (cancel)"), self._on_input("cancel")), 0)
+            
+            print(f"[DEBUG] GPIO buttons configured: Next={GPIO_NEXT}, Prev={GPIO_PREV}, Shutter={GPIO_SHUTTER}, Enter={GPIO_ENTER}")
+        except Exception as e:
+            print(f"[DEBUG] GPIO setup failed: {e}")
             pass
 
-    def _bind_keys_for_dev(self):
-        def on_key(window, key, scancode, codepoint, modifier):
-            if key == ord('o'):
-                self._open_settings()
-                return True
-            if key == ord('p'):
-                self._print()
-                return True
-            if key == ord('s'):
-                self._start_session()
-                return True
-            if key == 32:
-                self._on_input("shutter")
-                return True
-            if key in (276, 65361):
-                self._on_input("prev")
-                return True
-            if key in (275, 65363):
-                self._on_input("next")
-                return True
-            if key in (65293, 13):
-                self._on_input("enter")
-                return True
-            if key in (27,):  # ESC to cancel
-                self._on_input("cancel")
-                return True
+    def _test_gpio_buttons(self):
+        """Test if GPIO buttons are still responsive"""
+        try:
+            # Simple test - check if button objects exist and have callbacks
+            return (hasattr(self, 'btn_next') and hasattr(self.btn_next, 'when_pressed') and
+                    hasattr(self, 'btn_prev') and hasattr(self.btn_prev, 'when_pressed') and
+                    hasattr(self, 'btn_shutter') and hasattr(self.btn_shutter, 'when_pressed') and
+                    hasattr(self, 'btn_enter') and hasattr(self.btn_enter, 'when_pressed'))
+        except Exception:
             return False
-        Window.bind(on_key_down=on_key)
+
+    # def _bind_keys_for_dev(self):
+    #     def on_key(window, key, scancode, codepoint, modifier):
+    #         if key == ord('o'):
+    #             self._open_settings()
+    #             return True
+    #         if key == ord('p'):
+    #             self._print()
+    #             return True
+    #         if key == ord('s'):
+    #             self._start_session()
+    #             return True
+    #         if key == 32:
+    #             self._on_input("shutter")
+    #             return True
+    #         if key in (276, 65361):
+    #             self._on_input("prev")
+    #             return True
+    #         if key in (275, 65363):
+    #             self._on_input("next")
+    #             return True
+    #         if key in (65293, 13):
+    #             self._on_input("enter")
+    #             return True
+    #         if key in (27,):  # ESC to cancel
+    #             self._on_input("cancel")
+    #             return True
+    #         return False
+    #     Window.bind(on_key_down=on_key)
 
     def _on_input(self, action: str):
         self.last_input_ts = time.time()
+        print(f"[DEBUG] Button pressed: {action}")  # Add debug output
+        
+        # # Check if GPIO buttons are still working
+        # if HAS_GPIO and hasattr(self, 'btn_next'):
+        #     try:
+        #         # Test if GPIO buttons are still responsive
+        #         if not hasattr(self, '_gpio_last_check'):
+        #             self._gpio_last_check = time.time()
+        #         elif time.time() - self._gpio_last_check > 5:  # Check every 5 seconds
+        #             self._gpio_last_check = time.time()
+        #             # Re-setup GPIO if needed
+        #             if not self._test_gpio_buttons():
+        #                 print("[DEBUG] GPIO buttons not responding, re-setting up...")
+        #                 self._setup_gpio()
+        #     except Exception as e:
+        #         print(f"[DEBUG] GPIO check failed: {e}")
+        #         # Force re-setup GPIO on any error
+        #         print("[DEBUG] Force re-setting up GPIO due to error...")
+        #         self._setup_gpio()
+        
         if action == "cancel":
+            print("[DEBUG] Cancelling session...")
             self._cancel_session()
             return
 
         if self.state == ScreenState.ATTRACT:
             if action in ("shutter", "enter"):
+                print("[DEBUG] Starting new session...")
                 self._start_session()
             return
 
         if self.state == ScreenState.TEMPLATE:
             if action == "next":
+                print("[DEBUG] Next template")
                 self._cycle_template(+1)
             elif action == "prev":
+                print("[DEBUG] Previous template")
                 self._cycle_template(-1)
             elif action in ("shutter", "enter"):
+                print("[DEBUG] Starting countdown...")
                 self._begin_countdown()
             return
 
         if self.state == ScreenState.COUNTDOWN:
             if action == "shutter":
+                print("[DEBUG] Instant capture!")
                 # cancel countdown timer and capture instantly
                 try:
                     Clock.unschedule(self.count_ev)
@@ -526,6 +593,7 @@ class PhotoboothApp(App):
                 self.root_widget.hide_countdown()
                 self._capture_now()
             elif action in ("next", "prev"):
+                print(f"[DEBUG] Template change during countdown: {action}")
                 # allow adjusting template during countdown; reset countdown
                 try:
                     Clock.unschedule(self.count_ev)
@@ -540,57 +608,90 @@ class PhotoboothApp(App):
             return
 
         if self.state == ScreenState.QUICK_REVIEW:
+            print("[DEBUG] In quick review state - no action")
             return
 
         if self.state == ScreenState.SELECTION:
             if action == "next":
+                print("[DEBUG] Selection cursor next")
                 self.selection_cursor = min(len(self.captures) - 1, self.selection_cursor + 1)
                 self._update_selection_hint()
             elif action == "prev":
+                print("[DEBUG] Selection cursor previous")
                 self.selection_cursor = max(0, self.selection_cursor - 1)
                 self._update_selection_hint()
             elif action == "shutter":
                 if self.selection_cursor in self.selected_indices:
+                    print(f"[DEBUG] Deselecting photo {self.selection_cursor}")
                     self.selected_indices.remove(self.selection_cursor)
                 else:
                     if len(self.selected_indices) < self.current_template["slots"]:
+                        print(f"[DEBUG] Selecting photo {self.selection_cursor}")
                         self.selected_indices.append(self.selection_cursor)
                 self._update_selection_hint()
             elif action == "enter":
+                print(f"[DEBUG] Proceeding with {len(self.selected_indices)} selected photos")
                 # proceed when enough selected; otherwise ignore
                 if len(self.selected_indices) >= self.current_template["slots"]:
                     self._compose_and_show()
                     self.state = ScreenState.REVIEW
+                    # # Re-setup GPIO when entering review
+                    # if HAS_GPIO:
+                    #     print("[DEBUG] Re-setting up GPIO for review...")
+                    #     self._setup_gpio()
                     self._update_hud()
             return
 
         if self.state == ScreenState.REVIEW:
             if action == "next":
+                print("[DEBUG] Next filter")
                 self._cycle_filter(+1)
             elif action == "prev":
+                print("[DEBUG] Previous filter")
                 self._cycle_filter(-1)
             elif action in ("shutter", "enter"):
+                print("[DEBUG] Printing photo...")
                 self._print()
             return
 
+    # def _check_gpio_status(self, *_):
+    #     """Check GPIO status periodically and re-setup if needed"""
+    #     if not HAS_GPIO:
+    #         return
+    #     try:
+    #         if not self._test_gpio_buttons():
+    #             print("[DEBUG] GPIO buttons not responding, re-setting up...")
+    #             self._setup_gpio()
+    #     except Exception as e:
+    #         print(f"[DEBUG] GPIO status check failed: {e}")
+
     def _check_inactivity(self, *_):
         if self.state != ScreenState.ATTRACT and (time.time() - self.last_input_ts) > INACTIVITY_SECONDS:
+            print(f"[DEBUG] Inactivity timeout ({INACTIVITY_SECONDS}s), cancelling session")
             self._cancel_session()
 
     def _start_session(self):
+        print("[DEBUG] Starting new photobooth session")
         self.captures.clear()
         self.selected_indices.clear()
         self.taken_count = 0
         self.to_take = self.current_template["slots"] + 2
         self.state = ScreenState.TEMPLATE
+        print(f"[DEBUG] State changed to: {self.state}")
+        # # Re-setup GPIO when starting session
+        # if HAS_GPIO:
+        #     print("[DEBUG] Re-setting up GPIO for new session...")
+        #     self._setup_gpio()
         self._update_hud()
         self._show_template()
 
     def _cycle_template(self, delta: int):
         if not self.templates:
             return
+        old_index = self.template_index
         self.template_index = (self.template_index + delta) % len(self.templates)
         self.current_template = self.templates[self.template_index]
+        print(f"[DEBUG] Template changed from {old_index} to {self.template_index}: {self.current_template['name']}")
         # Update toTake following N+2 rule (1->3, 2->4, 3->5)
         self.to_take = self.current_template["slots"] + 2
         self.taken_count = 0
@@ -602,14 +703,22 @@ class PhotoboothApp(App):
             self._show_template()
 
     def _cycle_filter(self, delta: int):
+        old_filter = self.filter_name
         self.filter_index = (self.filter_index + delta) % len(FILTERS)
         self.filter_name = FILTERS[self.filter_index]
+        print(f"[DEBUG] Filter changed from {old_filter} to {self.filter_name}")
         self._update_hud()
         if self.state == ScreenState.REVIEW and self.last_composed_path:
             self._compose_and_show()
 
     def _begin_countdown(self):
+        print("[DEBUG] Starting countdown...")
         self.state = ScreenState.COUNTDOWN
+        print(f"[DEBUG] State changed to: {self.state}")
+        # # Re-setup GPIO when starting countdown
+        # if HAS_GPIO:
+        #     print("[DEBUG] Re-setting up GPIO for countdown...")
+        #     self._setup_gpio()
         self._update_hud()
         self.count_val = COUNTDOWN_SECONDS
         self.root_widget.show_countdown(self.count_val)
@@ -619,6 +728,7 @@ class PhotoboothApp(App):
 
     def _countdown_tick(self, dt):
         self.count_val -= 1
+        print(f"[DEBUG] Countdown: {self.count_val}")
         if self.count_val <= 0:
             Clock.unschedule(self.count_ev)
             self.root_widget.hide_countdown()
@@ -629,7 +739,9 @@ class PhotoboothApp(App):
     def _capture_now(self):
         if self.state not in (ScreenState.COUNTDOWN, ScreenState.TEMPLATE):
             return
+        print(f"[DEBUG] Capturing photo {self.taken_count + 1}/{self.to_take}")
         self.state = ScreenState.CAPTURING
+        print(f"[DEBUG] State changed to: {self.state}")
         self._update_hud()
 
         ts = time.strftime("%Y/%m/%d/%H%M%S")
@@ -654,6 +766,7 @@ class PhotoboothApp(App):
                 try:
                     # Fallback to array capture
                     arr = self.picam.capture_array("main")
+                    # RGB888 format should be ready to save directly
                     img = Image.fromarray(arr, mode="RGB")
                     img.save(out_path, "JPEG", quality=95)
                 except Exception as e2:
@@ -664,6 +777,8 @@ class PhotoboothApp(App):
 
         self.captures.append(out_path)
         self.taken_count += 1
+        print(f"[DEBUG] Photo saved: {out_path}")
+        print(f"[DEBUG] Progress: {self.taken_count}/{self.to_take} photos taken")
 
         try:
             img = Image.open(out_path).convert("RGB")
@@ -675,9 +790,15 @@ class PhotoboothApp(App):
             pass
 
         if self.taken_count >= self.current_template["slots"] + 2:
+            print("[DEBUG] All photos taken, moving to selection phase...")
             # Short pause before entering selection (to mimic quick review pause)
             def go_selection(*_):
                 self.state = ScreenState.SELECTION
+                print(f"[DEBUG] State changed to: {self.state}")
+                # # Re-setup GPIO when entering selection
+                # if HAS_GPIO:
+                #     print("[DEBUG] Re-setting up GPIO for selection...")
+                #     self._setup_gpio()
                 self.selection_cursor = 0
                 self.selected_indices = []
                 self._update_selection_hint()
@@ -685,6 +806,7 @@ class PhotoboothApp(App):
                 self._update_hud()
             Clock.schedule_once(go_selection, 0.6)
         else:
+            print("[DEBUG] More photos needed, starting next countdown...")
             self._begin_countdown()
 
     def _update_selection_hint(self):
@@ -711,9 +833,11 @@ class PhotoboothApp(App):
         self.root_widget.show_selection(thumbs, self.selection_cursor, self.selected_indices)
 
     def _compose_and_show(self):
+        print(f"[DEBUG] Composing image with {len(self.selected_indices)} photos")
         paths = [self.captures[i] for i in self.selected_indices]
         composed = self._compose(paths, self.filter_name, self.current_template)
         self.last_composed_path = composed
+        print(f"[DEBUG] Composed image saved: {composed}")
         try:
             img = Image.open(composed).convert("RGB")
             kv_tex = Texture.create(size=img.size, colorfmt="rgb")
@@ -768,7 +892,9 @@ class PhotoboothApp(App):
 
     def _print(self):
         if not self.last_composed_path:
+            print("[DEBUG] No composed image to print")
             return
+        print(f"[DEBUG] Printing image: {self.last_composed_path}")
         # Show printing overlay
         self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
         self.root_widget.hide_selection()
@@ -776,11 +902,14 @@ class PhotoboothApp(App):
         if self.printer_name:
             args += ["-d", self.printer_name]
         args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", str(self.last_composed_path)]
+        print(f"[DEBUG] Print command: {' '.join(args)}")
         proc = subprocess.run(args, capture_output=True)
         if proc.returncode != 0:
             err = proc.stderr.decode('utf-8', 'ignore')
+            print(f"[DEBUG] Print failed: {err}")
             self.root_widget.set_overlay(title="Print failed", subtitle=err[:120], footer="Press Space/Enter to retry", visible=True)
         else:
+            print("[DEBUG] Print job sent successfully")
             self.root_widget.set_overlay(title="Printed", subtitle="Job sent successfully", footer="", visible=True)
 
     def _open_settings(self):
@@ -801,7 +930,13 @@ class PhotoboothApp(App):
             self.printer_name = ""
 
     def _cancel_session(self):
+        print("[DEBUG] Cancelling photobooth session")
         self.state = ScreenState.ATTRACT
+        print(f"[DEBUG] State changed to: {self.state}")
+        # # Re-setup GPIO when cancelling session
+        # if HAS_GPIO:
+        #     print("[DEBUG] Re-setting up GPIO for attract mode...")
+        #     self._setup_gpio()
         self.captures.clear()
         self.selected_indices.clear()
         self.taken_count = 0
@@ -822,7 +957,7 @@ class PhotoboothApp(App):
     def _show_attract(self):
         self.root_widget.set_overlay(
             title="Pay attendant to start!",
-            subtitle="(Press S to begin in dev)",
+            subtitle="Press Enter button to begin",
             footer="",
             visible=True,
         )
@@ -833,8 +968,8 @@ class PhotoboothApp(App):
         n = self.current_template["slots"]
         self.root_widget.set_overlay(
             title="Select your template",
-            subtitle=f"Use Left/Right to change. Photos to take: {n+2}",
-            footer="Press Space to start",
+            subtitle=f"Use Prev/Next buttons to change. Photos to take: {n+2}",
+            footer="Press Shutter button to start",
             visible=True,
         )
         self.root_widget.hide_selection()
@@ -844,7 +979,7 @@ class PhotoboothApp(App):
         need = self.current_template["slots"]
         self.root_widget.set_overlay(
             title=f"Choose {need} photo(s)",
-            subtitle="Left/Right to move • Space to Select/Deselect",
+            subtitle="Prev/Next to move • Shutter to Select/Deselect",
             footer=f"Selected {len(self.selected_indices)} / {need}",
             visible=True,
         )
@@ -853,8 +988,8 @@ class PhotoboothApp(App):
     def _show_review(self):
         self.root_widget.set_overlay(
             title="Review",
-            subtitle="L/R to change filter",
-            footer="Press Space/Enter to print",
+            subtitle="Prev/Next to change filter",
+            footer="Press Shutter button to print",
             visible=True,
         )
 
