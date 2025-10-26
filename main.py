@@ -375,17 +375,37 @@ class PhotoboothApp(App):
         if HAS_PICAMERA:
             self.use_opencv = False
             self.picam = Picamera2()
+            
+            # Create configurations with proper buffer management
             self.video_config = self.picam.create_preview_configuration(
                 main={"size": (1280, 720), "format": "RGB888"},
                 transform=Transform(hflip=1),
+                buffer_count=4,  # Add explicit buffer count
             )
             self.still_config = self.picam.create_still_configuration(
                 main={"size": (1920, 1080), "format": "RGB888"},
                 transform=Transform(hflip=1),
+                buffer_count=2,  # Add explicit buffer count
             )
-            self.picam.configure(self.video_config)
-            self.picam.start()
-            print("✓ Using Picamera2 (Raspberry Pi)")
+            
+            # Add some camera tuning for better stability
+            self.picam.set_controls({"ExposureTime": 10000, "AnalogueGain": 1.0})
+            
+            try:
+                self.picam.configure(self.video_config)
+                self.picam.start()
+                print("✓ Using Picamera2 (Raspberry Pi)")
+            except Exception as e:
+                print(f"Warning: Picamera2 initialization failed: {e}")
+                # Fallback to OpenCV if available
+                if HAS_OPENCV:
+                    self.use_opencv = True
+                    self.cap = cv2.VideoCapture(0)
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                    print("✓ Fallback to OpenCV")
+                else:
+                    raise RuntimeError("Picamera2 failed and no OpenCV fallback available")
         elif HAS_OPENCV:
             self.use_opencv = True
             self.cap = cv2.VideoCapture(0)
@@ -405,9 +425,29 @@ class PhotoboothApp(App):
                     frame = cv2.flip(frame, 1)
                     self.root_widget.preview.show_frame(frame)
             else:
-                frame = self.picam.capture_array("main")
-                self.root_widget.preview.show_frame(frame)
-        except Exception:
+                # Use try-catch for Picamera2 to handle buffer errors gracefully
+                try:
+                    frame = self.picam.capture_array("main")
+                    self.root_widget.preview.show_frame(frame)
+                except Exception as e:
+                    # If capture fails, try to restart the camera
+                    if "Failed to queue buffer" in str(e) or "Input/output error" in str(e):
+                        try:
+                            print("Camera buffer error detected, attempting restart...")
+                            self.picam.stop()
+                            time.sleep(0.1)  # Brief pause
+                            self.picam.start()
+                        except Exception as restart_e:
+                            print(f"Camera restart failed: {restart_e}")
+                            # Switch to OpenCV fallback if available
+                            if HAS_OPENCV and not self.use_opencv:
+                                print("Switching to OpenCV fallback...")
+                                self.use_opencv = True
+                                self.cap = cv2.VideoCapture(0)
+                                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        except Exception as e:
+            # Silently handle any other preview errors to prevent crashes
             pass
 
     def _setup_gpio(self):
@@ -606,13 +646,21 @@ class PhotoboothApp(App):
                 img = Image.fromarray(frame, mode="RGB")
                 img.save(out_path, "JPEG", quality=95)
         else:
-            # Capture from Picamera2
+            # Capture from Picamera2 with better error handling
             try:
                 self.picam.switch_mode_and_capture_file(self.still_config, str(out_path))
-            except Exception:
-                arr = self.picam.capture_array("main")
-                img = Image.fromarray(arr, mode="RGB")
-                img.save(out_path, "JPEG", quality=95)
+            except Exception as e:
+                print(f"Still capture failed: {e}")
+                try:
+                    # Fallback to array capture
+                    arr = self.picam.capture_array("main")
+                    img = Image.fromarray(arr, mode="RGB")
+                    img.save(out_path, "JPEG", quality=95)
+                except Exception as e2:
+                    print(f"Array capture also failed: {e2}")
+                    # Create a placeholder image if all else fails
+                    img = Image.new("RGB", (1920, 1080), (128, 128, 128))
+                    img.save(out_path, "JPEG", quality=95)
 
         self.captures.append(out_path)
         self.taken_count += 1
@@ -809,6 +857,20 @@ class PhotoboothApp(App):
             footer="Press Space/Enter to print",
             visible=True,
         )
+
+    def on_stop(self):
+        """Clean up camera resources when app stops"""
+        try:
+            if hasattr(self, 'picam') and self.picam:
+                self.picam.stop()
+                self.picam.close()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'cap') and self.cap:
+                self.cap.release()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
