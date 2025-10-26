@@ -30,6 +30,8 @@ from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
+from kivy.graphics import Color, RoundedRectangle, Rectangle
+from kivy.animation import Animation
 
 try:
     from picamera2 import Picamera2
@@ -59,6 +61,12 @@ PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 A4_W, A4_H = 2480, 3508
 INACTIVITY_SECONDS = 90
 COUNTDOWN_SECONDS = 10
+
+# Simple theme
+PANEL_BG = (0, 0, 0, 0.35)
+PANEL_BORDER = (1, 1, 1, 0.12)
+ACCENT = (0.22, 0.65, 1.0, 1)
+RADIUS = 12
 
 GPIO_NEXT = 17
 GPIO_ENTER = 27
@@ -131,6 +139,7 @@ class PhotoboothRoot(FloatLayout):
         )
         self.hud.bind(texture_size=self.hud.setter('size'))
         self.add_widget(self.hud)
+        self._decorate_panel(self.hud)
 
         # Status bar (top-right): camera, printer, settings hint
         self.status = Label(
@@ -144,6 +153,7 @@ class PhotoboothRoot(FloatLayout):
         )
         self.status.bind(texture_size=self.status.setter('size'))
         self.add_widget(self.status)
+        self._decorate_panel(self.status)
 
         # Countdown overlay centered
         self.countdown = Label(
@@ -165,6 +175,7 @@ class PhotoboothRoot(FloatLayout):
         )
         self.quick.opacity = 0
         self.add_widget(self.quick)
+        self._decorate_panel(self.quick, pad=(18, 18), radius=16)
 
         # Titles / instructions overlays
         self.title = Label(
@@ -206,6 +217,7 @@ class PhotoboothRoot(FloatLayout):
         )
         self.selection_box.opacity = 0
         self.add_widget(self.selection_box)
+        self._decorate_panel(self.selection_box, pad=(12, 12), radius=14)
 
     def update_hud(self, state: ScreenState, filter_name: str, template_name: str, remaining: int):
         self.hud_text = f"State: {state} • Filter: {filter_name} • Template: {template_name} • Remaining: {max(remaining,0)}"
@@ -215,6 +227,13 @@ class PhotoboothRoot(FloatLayout):
         self.countdown_value = n
         self.countdown.text = str(n)
         self.countdown.opacity = 1
+        # pop animation each tick
+        try:
+            Animation.cancel_all(self.countdown)
+        except Exception:
+            pass
+        self.countdown.font_size = 180
+        Animation(font_size=140, d=0.25, t='out_quad').start(self.countdown)
 
     def hide_countdown(self):
         self.countdown.opacity = 0
@@ -256,6 +275,27 @@ class PhotoboothRoot(FloatLayout):
 
     def hide_selection(self):
         self.selection_box.opacity = 0
+
+    # Styling helpers
+    def _decorate_panel(self, widget, pad=(10, 8), radius=RADIUS, bg_rgba=PANEL_BG, border_rgba=PANEL_BORDER):
+        # Draw rounded translucent panel behind widget and keep it synced
+        with widget.canvas.before:
+            Color(*bg_rgba)
+            widget._bg = RoundedRectangle(radius=[radius], pos=(widget.x - pad[0], widget.y - pad[1]), size=(widget.width + pad[0]*2, widget.height + pad[1]*2))
+            Color(*border_rgba)
+            widget._border = RoundedRectangle(radius=[radius], pos=(widget.x - pad[0], widget.y - pad[1]), size=(widget.width + pad[0]*2, widget.height + pad[1]*2))
+
+        def _sync(*_):
+            x = widget.x - pad[0]
+            y = widget.y - pad[1]
+            w = widget.width + pad[0]*2
+            h = widget.height + pad[1]*2
+            widget._bg.pos = (x, y)
+            widget._bg.size = (w, h)
+            widget._border.pos = (x, y)
+            widget._border.size = (w, h)
+
+        widget.bind(pos=_sync, size=_sync)
 
 
 class PhotoboothApp(App):
