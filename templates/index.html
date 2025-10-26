@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Photobooth (Python)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      #root {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #preview {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+      }
+      .overlay {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      .hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.35);
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      .settings {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.35);
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      button {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <img id="preview" src="/stream" alt="preview" />
+      <div class="hud" id="hud">Loading…</div>
+      <div class="settings">
+        <label
+          >Printer: <input id="printer" placeholder="CUPS queue name"
+        /></label>
+        <button id="savePrinter">Save</button>
+      </div>
+      <div
+        class="overlay"
+        id="countdown"
+        style="
+          display: none;
+          font-size: 120px;
+          font-weight: 700;
+          text-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+        "
+      ></div>
+      <div
+        class="overlay"
+        id="quick"
+        style="display: none; background: rgba(0, 0, 0, 0.4)"
+      >
+        <img
+          id="lastShot"
+          style="
+            max-width: 80vw;
+            max-height: 80vh;
+            object-fit: contain;
+            border-radius: 8px;
+          "
+        />
+      </div>
+    </div>
+    <script>
+      const state = {
+        screen: "attract",
+        filter: "none",
+        slots: 1,
+        toTake: 3,
+        taken: 0,
+        lastShotUrl: null,
+        selected: [],
+      };
+      const hud = document.getElementById("hud");
+      const preview = document.getElementById("preview");
+      const countdownEl = document.getElementById("countdown");
+      const quickEl = document.getElementById("quick");
+      const lastShot = document.getElementById("lastShot");
+      const printerInput = document.getElementById("printer");
+      const savePrinter = document.getElementById("savePrinter");
+
+      function updateHud() {
+        hud.textContent = `State: ${state.screen} • Filter: ${
+          state.filter
+        } • Slots: ${state.slots} • ToTake: ${state.toTake - state.taken}`;
+      }
+
+      async function takePhoto() {
+        try {
+          const res = await fetch("/capture", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ width: 1920, height: 1080 }),
+          });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || "capture failed");
+          const url = data.url;
+          state.lastShotUrl = url;
+          state.taken += 1;
+          lastShot.src = url;
+          quickEl.style.display = "grid";
+          updateHud();
+          setTimeout(() => {
+            quickEl.style.display = "none";
+            if (state.taken >= state.toTake) {
+              state.screen = "review";
+            } else {
+              state.screen = "countdown";
+              startCountdown();
+            }
+            updateHud();
+          }, 1500);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      function startCountdown() {
+        let c = 3;
+        countdownEl.style.display = "grid";
+        countdownEl.textContent = c;
+        const t = setInterval(() => {
+          c -= 1;
+          countdownEl.textContent = c;
+          if (c <= 0) {
+            clearInterval(t);
+            countdownEl.style.display = "none";
+            takePhoto();
+          }
+        }, 1000);
+      }
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "s" || e.key === "S") {
+          state.screen = "template";
+          state.taken = 0;
+          state.toTake = state.slots + 2;
+          updateHud();
+          return;
+        }
+        if (e.code === "Space") {
+          e.preventDefault();
+          if (state.screen === "template") {
+            state.taken = 0;
+            state.toTake = state.slots + 2;
+            state.screen = "countdown";
+            startCountdown();
+            updateHud();
+            return;
+          }
+          if (state.screen === "countdown") {
+            takePhoto();
+            return;
+          }
+        }
+        if (e.key === "p" || e.key === "P") {
+          if (state.screen === "review" && state.lastShotUrl) {
+            fetch("/print", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                path: state.lastShotUrl.replace("/photo/", "")
+                  ? (document.location.origin + state.lastShotUrl).replace(
+                      document.location.origin,
+                      ""
+                    ) && state.lastShotUrl
+                  : state.lastShotUrl,
+                printer: localStorage.getItem("printer_name") || null,
+              }),
+            });
+          }
+        }
+      });
+
+      preview.addEventListener("error", () => {
+        console.error("MJPEG error, retrying…");
+        setTimeout(() => {
+          preview.src = "/stream?t=" + Date.now();
+        }, 1000);
+      });
+
+      savePrinter.onclick = () => {
+        if (printerInput.value)
+          localStorage.setItem("printer_name", printerInput.value);
+      };
+      printerInput.value = localStorage.getItem("printer_name") || "";
+
+      updateHud();
+    </script>
+  </body>
+</html>
+
+

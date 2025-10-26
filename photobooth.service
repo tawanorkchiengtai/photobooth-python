@@ -1,0 +1,14 @@
+[Unit]
+Description=Photobooth Kivy App
+After=multi-user.target
+
+[Service]
+User=pi
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/home/pi/photobooth/photobooth/python
+ExecStart=/usr/bin/python3 /home/pi/photobooth/photobooth/python/main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

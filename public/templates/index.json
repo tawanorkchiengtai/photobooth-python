@@ -1,0 +1,10 @@
+[
+  {
+    "id": "single_full",
+    "name": "Single Full",
+    "slots": 1,
+    "rects": [{ "leftPct": 10, "topPct": 15, "widthPct": 80, "heightPct": 70 }]
+  }
+]
+
+

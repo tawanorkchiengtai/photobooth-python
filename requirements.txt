@@ -1,0 +1,4 @@
+Pillow==10.4.0
+kivy
+picamera2
+gpiozero
