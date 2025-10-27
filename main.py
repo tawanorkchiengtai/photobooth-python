@@ -11,6 +11,15 @@ from PIL import Image, ImageOps
 
 import platform
 
+try:
+    import cv2
+    import numpy as np
+    HAS_OPENCV = True
+except Exception:
+    HAS_OPENCV = False
+
+
+
 from kivy.config import Config
 # Don't force fullscreen on macOS during development
 if platform.system() != 'Darwin':
@@ -39,12 +48,6 @@ try:
     HAS_PICAMERA = True
 except Exception:
     HAS_PICAMERA = False
-    try:
-        import cv2
-        import numpy as np
-        HAS_OPENCV = True
-    except Exception:
-        HAS_OPENCV = False
 
 try:
     from gpiozero import Button as GpioButton
@@ -58,7 +61,13 @@ TEMPLATES_PATH = Path(os.environ.get("PHOTOBOOTH_TEMPLATES_PATH",
                                      str(Path(__file__).parent / "public/templates/index.json")))
 PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 
-A4_W, A4_H = 2480, 3508
+A4_W, A4_H = 2480, 3508  # A4 at 300 DPI (standard print resolution)
+# Camera Module 3 resolutions:
+# - Still: 11.9MP (4608x2592) or 12MP (4056x3040)
+# - Video: 4K (3840x2160) or 1080p (1920x1080)
+CAMERA_STILL_W, CAMERA_STILL_H = 4608, 2592  # Max resolution for Camera Module 3
+CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1280, 720  # Use lower resolution for faster preview
+PREVIEW_W, PREVIEW_H = 1080, 1920  # Preview display size (portrait)
 INACTIVITY_SECONDS = 90
 COUNTDOWN_SECONDS = 10
 
@@ -126,14 +135,14 @@ class PhotoboothRoot(FloatLayout):
         self.preview = PreviewWidget()
         self.add_widget(self.preview)
 
-        # HUD with proper positioning (top-left)
+        # HUD with proper positioning (top-left) - back to landscape
         self.hud = Label(
             text="Loading...",
-            font_size=18,
+            font_size=18,  # Back to normal font size
             color=(1, 1, 1, 1),
             size_hint=(None, None),
             pos_hint={'x': 0, 'top': 1},
-            padding=(10, 10),
+            padding=(10, 10),  # Back to normal padding
             halign='left',
             valign='top'
         )
@@ -141,10 +150,10 @@ class PhotoboothRoot(FloatLayout):
         self.add_widget(self.hud)
         self._decorate_panel(self.hud)
 
-        # Status bar (top-right): camera, printer, settings hint
+        # Status bar (top-right): camera, printer, settings hint - back to landscape
         self.status = Label(
             text="",
-            font_size=16,
+            font_size=16,  # Back to normal font size
             color=(1, 1, 1, 1),
             size_hint=(None, None),
             pos_hint={'right': 1, 'top': 1},
@@ -155,10 +164,10 @@ class PhotoboothRoot(FloatLayout):
         self.add_widget(self.status)
         self._decorate_panel(self.status)
 
-        # Countdown overlay centered
+        # Countdown overlay centered - back to landscape
         self.countdown = Label(
             text="",
-            font_size=140,
+            font_size=140,  # Back to normal font size
             bold=True,
             color=(1, 1, 1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.5}
@@ -177,10 +186,10 @@ class PhotoboothRoot(FloatLayout):
         self.add_widget(self.quick)
         self._decorate_panel(self.quick, pad=(18, 18), radius=16)
 
-        # Titles / instructions overlays
+        # Titles / instructions overlays - back to landscape
         self.title = Label(
             text="",
-            font_size=36,
+            font_size=36,  # Back to normal font size
             bold=True,
             color=(1, 1, 1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.74}
@@ -190,7 +199,7 @@ class PhotoboothRoot(FloatLayout):
 
         self.subtitle = Label(
             text="",
-            font_size=20,
+            font_size=20,  # Back to normal font size
             color=(1, 1, 1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.66}
         )
@@ -199,20 +208,20 @@ class PhotoboothRoot(FloatLayout):
 
         self.footer = Label(
             text="",
-            font_size=18,
+            font_size=18,  # Back to normal font size
             color=(1, 1, 1, 1),
             pos_hint={'center_x': 0.5, 'y': 0.02}
         )
         self.footer.opacity = 0
         self.add_widget(self.footer)
 
-        # Selection thumbnails container (created on demand)
+        # Selection thumbnails container (created on demand) - back to landscape
         from kivy.uix.boxlayout import BoxLayout as KivyBox
         self.selection_box = KivyBox(
-            orientation='horizontal',
-            spacing=20,
-            size_hint=(0.9, None),
-            height=320,
+            orientation='horizontal',  # Back to horizontal for landscape
+            spacing=20,  # Back to normal spacing
+            size_hint=(0.9, None),  # Back to normal size
+            height=320,  # Back to normal height
             pos_hint={'center_x': 0.5, 'center_y': 0.55}
         )
         self.selection_box.opacity = 0
@@ -227,12 +236,12 @@ class PhotoboothRoot(FloatLayout):
         self.countdown_value = n
         self.countdown.text = str(n)
         self.countdown.opacity = 1
-        # pop animation each tick
+        # pop animation each tick - back to landscape
         try:
             Animation.cancel_all(self.countdown)
         except Exception:
             pass
-        self.countdown.font_size = 180
+        self.countdown.font_size = 180  # Back to normal max size
         Animation(font_size=140, d=0.25, t='out_quad').start(self.countdown)
 
     def hide_countdown(self):
@@ -265,8 +274,8 @@ class PhotoboothRoot(FloatLayout):
         self.selection_box.clear_widgets()
         for i, tex in enumerate(thumbs):
             w = KImg(texture=tex, allow_stretch=True, keep_ratio=True)
-            # Emphasize cursor by scaling
-            w.size_hint = (0.28, 1.0) if i == cursor_index else (0.24, 1.0)
+            # Emphasize cursor by scaling - back to horizontal layout
+            w.size_hint = (0.28, 1.0) if i == cursor_index else (0.24, 1.0)  # Back to horizontal
             # Dim unselected when selection made
             if selected_indices and (i not in selected_indices):
                 w.color = (1, 1, 1, 0.7)
@@ -300,12 +309,14 @@ class PhotoboothRoot(FloatLayout):
 
 class PhotoboothApp(App):
     def build(self):
-        # On Mac, use windowed mode for testing; on Pi, use fullscreen
+        # On Mac, use windowed mode for testing; on Pi, use fullscreen landscape
         if platform.system() == 'Darwin':
-            Window.size = (1280, 720)
+            Window.size = (CAMERA_VIDEO_H, CAMERA_VIDEO_W)  # Rotated: height=1080, width=1920
             Window.show_cursor = True
         else:
             Window.fullscreen = True
+            # Use Camera Module 3 video resolution for display - rotated
+            Window.size = (CAMERA_VIDEO_H, CAMERA_VIDEO_W)  # Rotated: height=1080, width=1920
             try:
                 Window.show_cursor = False
             except Exception:
@@ -342,7 +353,7 @@ class PhotoboothApp(App):
         print(f"[DEBUG] Printer configured: {self.printer_name or 'None'}")
         self._show_attract()
 
-        Clock.schedule_interval(self._update_preview, 1 / 20.0)
+        Clock.schedule_interval(self._update_preview, 1 / 60.0)  # 60 FPS
         Clock.schedule_interval(self._check_inactivity, 1.0)
         # Clock.schedule_interval(self._check_gpio_status, 5.0)  # Comment out GPIO status check
 
@@ -380,15 +391,16 @@ class PhotoboothApp(App):
             self.use_opencv = False
             self.picam = Picamera2()
             
-            # Create configurations with proper buffer management
+            # Create configurations with proper buffer management - Camera Module 3 optimized with rotation
+            # Use smaller resolution for preview to increase frame rate
             self.video_config = self.picam.create_preview_configuration(
-                main={"size": (1280, 720), "format": "RGB888"},
-                transform=Transform(hflip=1),
-                buffer_count=4,  # Add explicit buffer count
+                main={"size": (CAMERA_VIDEO_W, CAMERA_VIDEO_H), "format": "RGB888"},  # Use lower resolution for faster preview
+                transform=Transform(hflip=1, vflip=0, rotation=0),  # No rotation - we'll handle it in software
+                buffer_count=8,  # Increase buffer count for smoother preview
             )
             self.still_config = self.picam.create_still_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                transform=Transform(hflip=1),
+                main={"size": (CAMERA_STILL_W, CAMERA_STILL_H), "format": "RGB888"},  # 4056x3040 for Camera Module 3
+                transform=Transform(hflip=1, vflip=0, rotation=0),  # No rotation - we'll handle it in software
                 buffer_count=2,  # Add explicit buffer count
             )
             
@@ -431,18 +443,91 @@ class PhotoboothApp(App):
             else:
                 # Use try-catch for Picamera2 to handle buffer errors gracefully
                 try:
-                    frame = self.picam.capture_array("main")
-                    # Debug: print frame info
-                    if hasattr(self, '_frame_count'):
-                        self._frame_count += 1
-                    else:
-                        self._frame_count = 1
-                    if self._frame_count % 30 == 0:  # Print every 30 frames (about once per second)
-                        print(f"[DEBUG] Frame shape: {frame.shape}, dtype: {frame.dtype}, min: {frame.min()}, max: {frame.max()}")
-                    # Fix color channel swapping for preview only (RGB to BGR)
-                    frame = frame[:, :, ::-1]  # Reverse RGB to BGR for display
-                    self.root_widget.preview.show_frame(frame)
+                    # Initialize frame counter if not exists
+                    if not hasattr(self, '_frame_count'):
+                        self._frame_count = 0
+                    self._frame_count += 1
+                    
+                    # Step 1: Capture full resolution image
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 1: Capturing frame from camera...")
+                    full_frame = self.picam.capture_array("main")
+                    print(f"[DEBUG] Capture completed, frame is {'None' if full_frame is None else 'valid'}")
+                    if full_frame is None or full_frame.size == 0:
+                        print("[DEBUG] Invalid frame received")
+                        return
+                    
+                    # Step 2: Debug frame info
+                    
+                    if self._frame_count == 1 or self._frame_count % 100 == 0:  # Print less frequently
+                        print(f"[DEBUG] Step 2: Full frame shape: {full_frame.shape}, dtype: {full_frame.dtype}")
+                        print(f"[DEBUG] Step 2: Min: {full_frame.min()}, Max: {full_frame.max()}, Size: {full_frame.size}")
+                    
+
+                    # Calculate A4 portrait crop area (center crop)
+                    # crop_w = 1833  # Crop 60% of width
+                    # crop_h = 2592  # Crop 80% of height
+                    # start_x = 1388
+                    # start_y = 0
+                    
+                    # # Crop the center area
+                    # cropped_frame = full_frame[start_y:start_y+crop_h, start_x:start_x+crop_w]
+                    
+                    # # Resize to display size (1080x1920 for portrait)
+                    # display_frame = cv2.resize(cropped_frame, (1833, 2592))
+                    
+                    # # Rotate 90 degrees for portrait display
+                    # rotated_frame = cv2.rotate(display_frame, cv2.ROTATE_90_CLOCKWISE)
+                    
+                    # # Fix color channel swapping for preview only (RGB to BGR)
+                    # rotated_frame = rotated_frame[:, :, ::-1]  # Reverse RGB to BGR for display
+                    
+                    # Step 3: Rotate frame first
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 3: Rotating frame 90 degrees...")
+                    rotated_frame = cv2.rotate(full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 3: Rotated shape: {rotated_frame.shape}")
+
+                    # Step 4: Crop center area (100% width, 40% height) - no resize
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 4: Cropping center area...")
+                    h, w = rotated_frame.shape[:2]
+                    crop_w = int(w)  # Crop 100% of width
+                    crop_h = int(h * 0.4)  # Crop 40% of height
+                    start_x = (w - crop_w) // 2
+                    start_y = (h - crop_h) // 2
+                    
+                    cropped_frame = rotated_frame[start_y:start_y+crop_h, start_x:start_x+crop_w]
+                    
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 4: Cropped shape: {cropped_frame.shape}")
+
+                    # Step 5: No resize - use cropped frame directly
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 5: No resize - using cropped frame directly")
+                    preview_frame = cropped_frame
+                    
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 5: Preview shape: {preview_frame.shape}, dtype: {preview_frame.dtype}")
+                        print(f"[DEBUG] Step 5: Preview min: {preview_frame.min()}, max: {preview_frame.max()}")
+                    
+                    # Step 6: Fix color channel swapping for preview (RGB to BGR)
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 6: Converting RGB to BGR for display...")
+                    preview_frame = preview_frame[:, :, ::-1]  # Reverse RGB to BGR for display
+                    
+                    # Step 7: Display frame
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 7: Sending frame to preview widget...")
+                    self.root_widget.preview.show_frame(preview_frame)
+                    
+                    if self._frame_count == 1:
+                        print(f"[DEBUG] Step 7: Frame sent successfully!")
                 except Exception as e:
+                    # Show the error that occurred
+                    print(f"[DEBUG] Picamera2 error: {e}")
                     # If capture fails, try to restart the camera
                     if "Failed to queue buffer" in str(e) or "Input/output error" in str(e):
                         try:
@@ -460,7 +545,10 @@ class PhotoboothApp(App):
                                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         except Exception as e:
-            # Silently handle any other preview errors to prevent crashes
+            # Show any preview errors for debugging
+            print(f"[DEBUG] Preview error: {e}")
+            import traceback
+            traceback.print_exc()
             pass
 
     def _setup_gpio(self):
@@ -737,48 +825,78 @@ class PhotoboothApp(App):
             self.root_widget.show_countdown(self.count_val)
 
     def _capture_now(self):
-        if self.state not in (ScreenState.COUNTDOWN, ScreenState.TEMPLATE):
-            return
-        print(f"[DEBUG] Capturing photo {self.taken_count + 1}/{self.to_take}")
+        print(f"[DEBUG] Capturing photo {len(self.captures) + 1}...")
         self.state = ScreenState.CAPTURING
-        print(f"[DEBUG] State changed to: {self.state}")
         self._update_hud()
-
+        
         ts = time.strftime("%Y/%m/%d/%H%M%S")
         out_path = PHOTO_DIR / f"{ts}_{len(self.captures)+1}.jpg"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         if self.use_opencv:
-            # Capture from OpenCV
+            # ... (ส่วน OpenCV เหมือนเดิม) ...
             ret, frame = self.cap.read()
             if ret:
-                # Convert BGR to RGB and flip for mirror effect
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame = cv2.flip(frame, 1)
-                img = Image.fromarray(frame, mode="RGB")
+                img = Image.fromarray(frame)
+                img.save(out_path, "JPEG", quality=95)
+            else:
+                img = Image.new("RGB", (A4_W, A4_H), (128, 128, 128))
                 img.save(out_path, "JPEG", quality=95)
         else:
-            # Capture from Picamera2 with better error handling
             try:
-                self.picam.switch_mode_and_capture_file(self.still_config, str(out_path))
+                # Step 1: Capture full resolution image using still config
+                print(f"[DEBUG CAPTURE] Step 1: Capturing high resolution image...")
+                # Capture using still config (this will temporarily switch to still mode)
+                arr = self.picam.switch_mode_and_capture_array(self.still_config)
+                print(f"[DEBUG CAPTURE] Step 1: Captured shape: {arr.shape}, dtype: {arr.dtype}")
+                print(f"[DEBUG CAPTURE] Step 1: Min: {arr.min()}, Max: {arr.max()}")
+                
+                # Step 2: Rotate image 90 degrees counterclockwise
+                print(f"[DEBUG CAPTURE] Step 2: Rotating 90 degrees...")
+                rotated_arr = cv2.rotate(arr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                print(f"[DEBUG CAPTURE] Step 2: Rotated shape: {rotated_arr.shape}")
+
+                # Step 3: Crop center area (100% width, 40% height) - no resize
+                print(f"[DEBUG CAPTURE] Step 3: Cropping center area...")
+                h, w = rotated_arr.shape[:2]
+                crop_w = int(w)  # Crop 100% of width
+                crop_h = int(h * 0.4)  # Crop 40% of height
+                start_x = (w - crop_w) // 2
+                start_y = (h - crop_h) // 2
+                
+                cropped_arr = rotated_arr[start_y:start_y+crop_h, start_x:start_x+crop_w]
+                print(f"[DEBUG CAPTURE] Step 3: Cropped shape: {cropped_arr.shape}")
+
+                # Step 4: No resize - use cropped image directly
+                print(f"[DEBUG CAPTURE] Step 4: No resize - using cropped image directly")
+                
+                # Step 5: Fix color channel swapping for capture (RGB to BGR)
+                print(f"[DEBUG CAPTURE] Step 5: Converting RGB to BGR for capture...")
+                captured_arr = cropped_arr[:, :, ::-1]  # Reverse RGB to BGR for capture
+                
+                # Step 6: Save image with lower quality to reduce file size
+                print(f"[DEBUG CAPTURE] Step 6: Saving to {out_path}...")
+                img = Image.fromarray(captured_arr, mode="RGB")
+                img.save(out_path, "JPEG", quality=75)  # Reduced quality for smaller file size
+                print(f"[DEBUG CAPTURE] Step 6: Saved successfully!")
+                
+                # Step 7: Switch back to video config for continued preview
+                self.picam.switch_mode(self.video_config)
+                print(f"[DEBUG CAPTURE] Step 7: Switched back to video config")
+                
             except Exception as e:
-                print(f"Still capture failed: {e}")
-                try:
-                    # Fallback to array capture
-                    arr = self.picam.capture_array("main")
-                    # RGB888 format should be ready to save directly
-                    img = Image.fromarray(arr, mode="RGB")
-                    img.save(out_path, "JPEG", quality=95)
-                except Exception as e2:
-                    print(f"Array capture also failed: {e2}")
-                    # Create a placeholder image if all else fails
-                    img = Image.new("RGB", (1920, 1080), (128, 128, 128))
-                    img.save(out_path, "JPEG", quality=95)
+                print(f"Array capture failed: {e}")
+                img = Image.new("RGB", (A4_W, A4_H), (128, 128, 128))
+                img.save(out_path, "JPEG", quality=95)
 
         self.captures.append(out_path)
+        if not hasattr(self, 'taken_count'):
+            self.taken_count = 0
         self.taken_count += 1
         print(f"[DEBUG] Photo saved: {out_path}")
-        print(f"[DEBUG] Progress: {self.taken_count}/{self.to_take} photos taken")
+        print(f"[DEBUG] Progress: {self.taken_count}/{self.current_template.get('slots', 4)} photos taken")
 
         try:
             img = Image.open(out_path).convert("RGB")
