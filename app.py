@@ -161,11 +161,11 @@ def compose():
         except Exception as e:
             return jsonify({"ok": False, "error": f"open {p}: {e}"}), 500
         x, y, w, h = rects[i]
-        scale = max(w / img.width, h / img.height)
+        scale = min(w / img.width, h / img.height)  # Use min to fit inside rect (letterbox/pillarbox)
         nw, nh = int(img.width * scale), int(img.height * scale)
         resized = img.resize((nw, nh), Image.LANCZOS)
-        dx = x + (w - nw) // 2
-        dy = y + (h - nh) // 2
+        dx = x + (w - nw) // 2  # Center horizontally
+        dy = y + (h - nh) // 2  # Center vertically
         canvas.paste(resized, (dx, dy))
 
     if filt == "black_white":

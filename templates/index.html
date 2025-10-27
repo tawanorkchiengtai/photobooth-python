@@ -122,7 +122,7 @@
           const res = await fetch("/capture", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ width: 1920, height: 1080 }),
+            body: JSON.stringify({ width: 2592, height: 1843 }),
           });
           const data = await res.json();
           if (!data.ok) throw new Error(data.error || "capture failed");
@@ -221,5 +221,3 @@
     </script>
   </body>
 </html>
-
-
