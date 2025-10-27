@@ -68,6 +68,10 @@ A4_W, A4_H = 2480, 3508  # A4 at 300 DPI (standard print resolution)
 CAMERA_STILL_W, CAMERA_STILL_H = 4608, 2592  # Max resolution for Camera Module 3
 CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1280, 720  # Use lower resolution for faster preview
 PREVIEW_W, PREVIEW_H = 1080, 1920  # Preview display size (portrait)
+
+# Template display sizes (matching templates/index.html)
+TEMPLATE_DISPLAY_W = 2592  # Template display width
+TEMPLATE_DISPLAY_H = 1843  # Template display height
 INACTIVITY_SECONDS = 90
 COUNTDOWN_SECONDS = 10
 
@@ -327,6 +331,9 @@ class PhotoboothApp(App):
         self.templates = self._load_templates()
         self.template_index = 0
         self.current_template = self.templates[self.template_index]
+        
+        # Current display size (changes based on template)
+        self.current_display_w, self.current_display_h = self._get_template_display_size(self.current_template)
         self.filter_index = 0
         self.filter_name = FILTERS[self.filter_index]
 
@@ -361,6 +368,23 @@ class PhotoboothApp(App):
         self._setup_gpio()
 
         return self.root_widget
+
+    def _get_template_display_size(self, template):
+        """Calculate display size based on template slots"""
+        slots = template.get("slots", 1)
+        
+        if slots == 1:
+            # Single photo - full size
+            return TEMPLATE_DISPLAY_W, TEMPLATE_DISPLAY_H
+        elif slots == 2:
+            # Two photos - half height each
+            return TEMPLATE_DISPLAY_W, TEMPLATE_DISPLAY_H
+        elif slots == 3:
+            # Three photos - third height each
+            return TEMPLATE_DISPLAY_W, TEMPLATE_DISPLAY_H
+        else:
+            # Default to full size
+            return TEMPLATE_DISPLAY_W, TEMPLATE_DISPLAY_H
 
     def _load_templates(self):
         try:
@@ -779,7 +803,12 @@ class PhotoboothApp(App):
         old_index = self.template_index
         self.template_index = (self.template_index + delta) % len(self.templates)
         self.current_template = self.templates[self.template_index]
+        
+        # Update display size based on new template
+        self.current_display_w, self.current_display_h = self._get_template_display_size(self.current_template)
+        
         print(f"[DEBUG] Template changed from {old_index} to {self.template_index}: {self.current_template['name']}")
+        print(f"[DEBUG] Display size updated to: {self.current_display_w}x{self.current_display_h}")
         # Update toTake following N+2 rule (1->3, 2->4, 3->5)
         self.to_take = self.current_template["slots"] + 2
         self.taken_count = 0
@@ -869,12 +898,14 @@ class PhotoboothApp(App):
                 cropped_arr = rotated_arr[start_y:start_y+crop_h, start_x:start_x+crop_w]
                 print(f"[DEBUG CAPTURE] Step 3: Cropped shape: {cropped_arr.shape}")
 
-                # Step 4: No resize - use cropped image directly
-                print(f"[DEBUG CAPTURE] Step 4: No resize - using cropped image directly")
+                # Step 4: Resize to current template display size
+                print(f"[DEBUG CAPTURE] Step 4: Resizing to current template size ({self.current_display_w}x{self.current_display_h})...")
+                template_arr = cv2.resize(cropped_arr, (self.current_display_w, self.current_display_h))
+                print(f"[DEBUG CAPTURE] Step 4: Template size shape: {template_arr.shape}")
                 
                 # Step 5: Fix color channel swapping for capture (RGB to BGR)
                 print(f"[DEBUG CAPTURE] Step 5: Converting RGB to BGR for capture...")
-                captured_arr = cropped_arr[:, :, ::-1]  # Reverse RGB to BGR for capture
+                captured_arr = template_arr[:, :, ::-1]  # Reverse RGB to BGR for capture
                 
                 # Step 6: Save image with lower quality to reduce file size
                 print(f"[DEBUG CAPTURE] Step 6: Saving to {out_path}...")
