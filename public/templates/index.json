@@ -15,6 +15,21 @@
     ]
   },
   {
+    "id": "ex-template3",
+    "name": "Ex Template 3",
+    "slots": 1,
+    "background": "templates/ex-template3.png",
+    "vintage_effect": false,
+    "rects": [
+      {
+        "leftPct": 28,
+        "topPct": 43.5,
+        "widthPct": 43,
+        "heightPct": 32
+      }
+    ]
+  },
+  {
     "id": "single_full",
     "name": "Single Full (No Background)",
     "slots": 1,
