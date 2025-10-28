@@ -65,8 +65,8 @@ A4_W, A4_H = 2480, 3508  # A4 at 300 DPI (standard print resolution)
 # Camera Module 3 resolutions:
 # - Still: 11.9MP (4608x2592) or 12MP (4056x3040)
 # - Video: 4K (3840x2160) or 1080p (1920x1080)
-CAMERA_STILL_W, CAMERA_STILL_H = 4608, 2592  # Max resolution for Camera Module 3
-CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1280, 720  # Use lower resolution for faster preview
+CAMERA_STILL_W, CAMERA_STILL_H = 3840, 2160  # Max resolution for Camera Module 3
+CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1920, 1080  # Use lower resolution for faster preview
 PREVIEW_W, PREVIEW_H = 1080, 1920  # Preview display size (portrait)
 
 # Template display sizes (matching templates/index.html)
@@ -441,15 +441,7 @@ class PhotoboothApp(App):
                 print("✓ Using Picamera2 (Raspberry Pi)")
             except Exception as e:
                 print(f"Warning: Picamera2 initialization failed: {e}")
-                # Fallback to OpenCV if available
-                if HAS_OPENCV:
-                    self.use_opencv = True
-                    self.cap = cv2.VideoCapture(0)
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-                    print("✓ Fallback to OpenCV")
-                else:
-                    raise RuntimeError("Picamera2 failed and no OpenCV fallback available")
+                raise RuntimeError("Picamera2 initialization failed")
         elif HAS_OPENCV:
             self.use_opencv = True
             self.cap = cv2.VideoCapture(0)
@@ -511,31 +503,32 @@ class PhotoboothApp(App):
                     # rotated_frame = rotated_frame[:, :, ::-1]  # Reverse RGB to BGR for display
                     
                     # Step 3: Rotate frame first
-                    if self._frame_count == 1:
-                        print(f"[DEBUG] Step 3: Rotating frame 90 degrees...")
-                    rotated_frame = cv2.rotate(full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    # if self._frame_count == 1:
+                    #     print(f"[DEBUG] Step 3: Rotating frame 90 degrees...")
+                    # # rotated_frame = cv2.rotate(full_frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
                     
-                    if self._frame_count == 1:
-                        print(f"[DEBUG] Step 3: Rotated shape: {rotated_frame.shape}")
+                    # if self._frame_count == 1:
+                    #     print(f"[DEBUG] Step 3: Rotated shape: {rotated_frame.shape}")
 
-                    # Step 4: Crop center area (100% width, 40% height) - no resize
-                    if self._frame_count == 1:
-                        print(f"[DEBUG] Step 4: Cropping center area...")
-                    h, w = rotated_frame.shape[:2]
-                    crop_w = int(w)  # Crop 100% of width
-                    crop_h = int(h * 0.4)  # Crop 40% of height
-                    start_x = (w - crop_w) // 2
-                    start_y = (h - crop_h) // 2
+                    # # Step 4: Crop center area (100% width, 40% height) - no resize
+                    # if self._frame_count == 1:
+                    #     print(f"[DEBUG] Step 4: Cropping center area...")
+                    # h, w = rotated_frame.shape[:2]
+                    # crop_w = int(w)  # Crop 100% of width
+                    # crop_h = int(h * 0.4)  # Crop 40% of height
+                    # start_x = (w - crop_w) // 2
+                    # start_y = (h - crop_h) // 2
                     
-                    cropped_frame = rotated_frame[start_y:start_y+crop_h, start_x:start_x+crop_w]
+                    # cropped_frame = rotated_frame[start_y:start_y+crop_h, start_x:start_x+crop_w]
                     
-                    if self._frame_count == 1:
-                        print(f"[DEBUG] Step 4: Cropped shape: {cropped_frame.shape}")
+                    
+                    # if self._frame_count == 1:
+                    #     print(f"[DEBUG] Step 4: Cropped shape: {cropped_frame.shape}")
 
-                    # Step 5: No resize - use cropped frame directly
-                    if self._frame_count == 1:
-                        print(f"[DEBUG] Step 5: No resize - using cropped frame directly")
-                    preview_frame = cropped_frame
+                    # # Step 5: No resize - use cropped frame directly
+                    # if self._frame_count == 1:
+                    #     print(f"[DEBUG] Step 5: No resize - using cropped frame directly")
+                    preview_frame = full_frame
                     
                     if self._frame_count == 1:
                         print(f"[DEBUG] Step 5: Preview shape: {preview_frame.shape}, dtype: {preview_frame.dtype}")
@@ -861,7 +854,7 @@ class PhotoboothApp(App):
         print(f"[DEBUG] Capturing photo {len(self.captures) + 1}...")
         self.state = ScreenState.CAPTURING
         self._update_hud()
-        
+
         ts = time.strftime("%Y/%m/%d/%H%M%S")
         out_path = PHOTO_DIR / f"{ts}_{len(self.captures)+1}.jpg"
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -874,57 +867,50 @@ class PhotoboothApp(App):
                 frame = cv2.flip(frame, 1)
                 img = Image.fromarray(frame)
                 img.save(out_path, "JPEG", quality=95)
-            else:
+        else:
                 img = Image.new("RGB", (A4_W, A4_H), (128, 128, 128))
                 img.save(out_path, "JPEG", quality=95)
-        else:
-            try:
-                # Step 1: Capture full resolution image using still config
-                print(f"[DEBUG CAPTURE] Step 1: Capturing high resolution image...")
+                # Step 1: Capture image at CAMERA_STILL_W x CAMERA_STILL_H size
+                print(f"[DEBUG CAPTURE] Step 1: Capturing image at {CAMERA_STILL_W}x{CAMERA_STILL_H}...")
                 # Capture using still config (this will temporarily switch to still mode)
                 arr = self.picam.switch_mode_and_capture_array(self.still_config)
                 print(f"[DEBUG CAPTURE] Step 1: Captured shape: {arr.shape}, dtype: {arr.dtype}")
                 print(f"[DEBUG CAPTURE] Step 1: Min: {arr.min()}, Max: {arr.max()}")
                 
                 # Step 2: Rotate image 90 degrees counterclockwise
-                print(f"[DEBUG CAPTURE] Step 2: Rotating 90 degrees...")
-                rotated_arr = cv2.rotate(arr, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                print(f"[DEBUG CAPTURE] Step 2: Rotated shape: {rotated_arr.shape}")
+                # print(f"[DEBUG CAPTURE] Step 2: Rotating 90 degrees...")
+                # rotated_arr = cv2.rotate(arr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                # print(f"[DEBUG CAPTURE] Step 2: Rotated shape: {rotated_arr.shape}")
 
-                # Step 3: Crop center area (100% width, 40% height) - no resize
-                print(f"[DEBUG CAPTURE] Step 3: Cropping center area...")
-                h, w = rotated_arr.shape[:2]
-                crop_w = int(w)  # Crop 100% of width
-                crop_h = int(h * 0.4)  # Crop 40% of height
-                start_x = (w - crop_w) // 2
-                start_y = (h - crop_h) // 2
+                # # Step 3: Crop center area (100% width, 40% height) - no resize
+                # print(f"[DEBUG CAPTURE] Step 3: Cropping center area...")
+                # h, w = rotated_arr.shape[:2]
+                # crop_w = int(w)  # Crop 100% of width
+                # crop_h = int(h * 0.4)  # Crop 40% of height
+                # start_x = (w - crop_w) // 2
+                # start_y = (h - crop_h) // 2
                 
-                cropped_arr = rotated_arr[start_y:start_y+crop_h, start_x:start_x+crop_w]
-                print(f"[DEBUG CAPTURE] Step 3: Cropped shape: {cropped_arr.shape}")
+                # cropped_arr = rotated_arr[start_y:start_y+crop_h, start_x:start_x+crop_w]
+                # print(f"[DEBUG CAPTURE] Step 3: Cropped shape: {cropped_arr.shape}")
 
-                # Step 4: Resize to current template display size
-                print(f"[DEBUG CAPTURE] Step 4: Resizing to current template size ({self.current_display_w}x{self.current_display_h})...")
-                template_arr = cv2.resize(cropped_arr, (self.current_display_w, self.current_display_h))
-                print(f"[DEBUG CAPTURE] Step 4: Template size shape: {template_arr.shape}")
+                # Step 3: Use full image (no cropping, no resizing)
+                print(f"[DEBUG CAPTURE] Step 3: Using full captured image...")
+                captured_arr = arr
+                print(f"[DEBUG CAPTURE] Step 3: Final shape: {captured_arr.shape}")
                 
-                # Step 5: Fix color channel swapping for capture (RGB to BGR)
-                print(f"[DEBUG CAPTURE] Step 5: Converting RGB to BGR for capture...")
-                captured_arr = template_arr[:, :, ::-1]  # Reverse RGB to BGR for capture
+                # Step 4: Fix color channel swapping for capture (RGB to BGR)
+                print(f"[DEBUG CAPTURE] Step 4: Converting RGB to BGR for capture...")
+                captured_arr = captured_arr[:, :, ::-1]  # Reverse RGB to BGR for capture
                 
-                # Step 6: Save image with lower quality to reduce file size
-                print(f"[DEBUG CAPTURE] Step 6: Saving to {out_path}...")
+                # Step 5: Save image with lower quality to reduce file size
+                print(f"[DEBUG CAPTURE] Step 5: Saving to {out_path}...")
                 img = Image.fromarray(captured_arr, mode="RGB")
                 img.save(out_path, "JPEG", quality=75)  # Reduced quality for smaller file size
-                print(f"[DEBUG CAPTURE] Step 6: Saved successfully!")
+                print(f"[DEBUG CAPTURE] Step 5: Saved successfully!")
                 
-                # Step 7: Switch back to video config for continued preview
+                # Step 6: Switch back to video config for continued preview
                 self.picam.switch_mode(self.video_config)
-                print(f"[DEBUG CAPTURE] Step 7: Switched back to video config")
-                
-            except Exception as e:
-                print(f"Array capture failed: {e}")
-                img = Image.new("RGB", (A4_W, A4_H), (128, 128, 128))
-                img.save(out_path, "JPEG", quality=95)
+                print(f"[DEBUG CAPTURE] Step 6: Switched back to video config")
 
         self.captures.append(out_path)
         if not hasattr(self, 'taken_count'):
