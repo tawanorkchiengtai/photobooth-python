@@ -86,7 +86,7 @@ GPIO_ENTER = 27
 GPIO_PREV = 22
 GPIO_SHUTTER = 23
 
-FILTERS = ["none", "black_white", "sepia"]
+FILTERS = ["none", "black_white", "sepia", "newspaper"]
 
 
 class ScreenState(str, Enum):
@@ -1004,6 +1004,39 @@ class PhotoboothApp(App):
         except Exception:
             pass
 
+    def _make_vintage_newspaper(self, img: Image.Image, intensity: str = 'medium') -> Image.Image:
+        """Apply vintage newspaper effect to photo for 1974 newspaper authenticity"""
+        from PIL import ImageEnhance, ImageFilter
+        
+        # 1. Convert to grayscale (newspapers were mostly B&W in 1974)
+        img = ImageOps.grayscale(img).convert('RGB')
+        
+        # 2. Add slight sepia/aged paper tone
+        img = ImageOps.colorize(ImageOps.grayscale(img), 
+                                black="#1a1410",  # Dark brownish-black
+                                white="#e8dcc8")  # Aged paper white
+        
+        # 3. Reduce contrast (faded newspaper print look)
+        contrast = ImageEnhance.Contrast(img)
+        img = contrast.enhance(0.75)
+        
+        # 4. Add film grain/noise for authenticity
+        if HAS_OPENCV:
+            arr = np.array(img, dtype=np.float32)
+            grain_intensity = 15 if intensity == 'light' else 25 if intensity == 'medium' else 35
+            grain = np.random.normal(0, grain_intensity, arr.shape)
+            arr = np.clip(arr + grain, 0, 255)
+            img = Image.fromarray(arr.astype(np.uint8))
+        
+        # 5. Slight blur (old lens/printing effect)
+        img = img.filter(ImageFilter.GaussianBlur(radius=0.3))
+        
+        # 6. Slight brightness reduction (aged look)
+        brightness = ImageEnhance.Brightness(img)
+        img = brightness.enhance(0.92)
+        
+        return img
+
     def _compose(self, selected_paths: List[Path], filt: str, tpl: dict) -> Path:
         W, H = A4_W, A4_H
         
@@ -1029,6 +1062,9 @@ class PhotoboothApp(App):
             h = int((r["heightPct"] / 100) * H)
             return x, y, w, h
 
+        # Check if template has vintage effect enabled
+        apply_vintage = tpl.get("vintage_effect", False)
+        
         rects = [to_rect(r) for r in tpl.get("rects", [])]
         for i, p in enumerate(selected_paths):
             if i >= len(rects):
@@ -1037,6 +1073,21 @@ class PhotoboothApp(App):
                 img = Image.open(p).convert("RGB")
             except Exception:
                 continue
+            
+            # Apply vintage newspaper effect if template requires it
+            if apply_vintage:
+                img = self._make_vintage_newspaper(img, intensity='medium')
+            
+            # Apply user-selected filter to photo only (not template background)
+            if filt == "black_white":
+                img = ImageOps.grayscale(img).convert("RGB")
+            elif filt == "sepia":
+                g = ImageOps.colorize(ImageOps.grayscale(img), black="#2e1f0f", white="#f4e1c1")
+                img = g.convert("RGB")
+            elif filt == "newspaper":
+                img = self._make_vintage_newspaper(img, intensity='medium')
+            
+            # Resize and paste onto canvas
             x, y, w, h = rects[i]
             scale = max(w / img.width, h / img.height)
             nw, nh = int(img.width * scale), int(img.height * scale)
@@ -1044,12 +1095,6 @@ class PhotoboothApp(App):
             dx = x + (w - nw) // 2
             dy = y + (h - nh) // 2
             canvas.paste(resized, (dx, dy))
-
-        if filt == "black_white":
-            canvas = ImageOps.grayscale(canvas).convert("RGB")
-        elif filt == "sepia":
-            g = ImageOps.colorize(ImageOps.grayscale(canvas), black="#2e1f0f", white="#f4e1c1")
-            canvas = g.convert("RGB")
 
         ts = time.strftime("%Y/%m/%d/%H%M%S")
         out_path = PHOTO_DIR / f"A4_{ts}.jpg"
