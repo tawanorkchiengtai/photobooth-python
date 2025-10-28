@@ -364,8 +364,12 @@ class PhotoboothApp(App):
         Clock.schedule_interval(self._check_inactivity, 1.0)
         # Clock.schedule_interval(self._check_gpio_status, 5.0)  # Comment out GPIO status check
 
-        # self._bind_keys_for_dev()  # Comment out keyboard controls
-        self._setup_gpio()
+        # Enable keyboard controls for development (especially on Mac)
+        self._bind_keys_for_dev()
+        
+        # Only setup GPIO on Raspberry Pi
+        if HAS_GPIO:
+            self._setup_gpio()
 
         return self.root_widget
 
@@ -620,34 +624,34 @@ class PhotoboothApp(App):
         except Exception:
             return False
 
-    # def _bind_keys_for_dev(self):
-    #     def on_key(window, key, scancode, codepoint, modifier):
-    #         if key == ord('o'):
-    #             self._open_settings()
-    #             return True
-    #         if key == ord('p'):
-    #             self._print()
-    #             return True
-    #         if key == ord('s'):
-    #             self._start_session()
-    #             return True
-    #         if key == 32:
-    #             self._on_input("shutter")
-    #             return True
-    #         if key in (276, 65361):
-    #             self._on_input("prev")
-    #             return True
-    #         if key in (275, 65363):
-    #             self._on_input("next")
-    #             return True
-    #         if key in (65293, 13):
-    #             self._on_input("enter")
-    #             return True
-    #         if key in (27,):  # ESC to cancel
-    #             self._on_input("cancel")
-    #             return True
-    #         return False
-    #     Window.bind(on_key_down=on_key)
+    def _bind_keys_for_dev(self):
+        def on_key(window, key, scancode, codepoint, modifier):
+            if key == ord('o'):
+                self._open_settings()
+                return True
+            if key == ord('p'):
+                self._print()
+                return True
+            if key == ord('s'):
+                self._start_session()
+                return True
+            if key == 32:
+                self._on_input("shutter")
+                return True
+            if key in (276, 65361):
+                self._on_input("prev")
+                return True
+            if key in (275, 65363):
+                self._on_input("next")
+                return True
+            if key in (65293, 13):
+                self._on_input("enter")
+                return True
+            if key in (27,):  # ESC to cancel
+                self._on_input("cancel")
+                return True
+            return False
+        Window.bind(on_key_down=on_key)
 
     def _on_input(self, action: str):
         self.last_input_ts = time.time()
@@ -1002,7 +1006,21 @@ class PhotoboothApp(App):
 
     def _compose(self, selected_paths: List[Path], filt: str, tpl: dict) -> Path:
         W, H = A4_W, A4_H
-        canvas = Image.new("RGB", (W, H), (34, 34, 34))
+        
+        # Load background template if available
+        background_path = tpl.get("background")
+        if background_path and Path(background_path).exists():
+            try:
+                canvas = Image.open(background_path).convert("RGB")
+                # Ensure it's the right size
+                if canvas.size != (W, H):
+                    canvas = canvas.resize((W, H), Image.LANCZOS)
+            except Exception as e:
+                print(f"[DEBUG] Failed to load background {background_path}: {e}")
+                canvas = Image.new("RGB", (W, H), (34, 34, 34))
+        else:
+            # Default solid color background
+            canvas = Image.new("RGB", (W, H), (34, 34, 34))
 
         def to_rect(r: dict) -> Tuple[int, int, int, int]:
             x = int((r["leftPct"] / 100) * W)
@@ -1080,6 +1098,18 @@ class PhotoboothApp(App):
 
     def _cancel_session(self):
         print("[DEBUG] Cancelling photobooth session")
+        
+        # Stop countdown timer if it's running
+        if hasattr(self, 'count_ev'):
+            try:
+                Clock.unschedule(self.count_ev)
+                print("[DEBUG] Countdown timer stopped")
+            except Exception:
+                pass
+        
+        # Hide countdown display
+        self.root_widget.hide_countdown()
+        
         self.state = ScreenState.ATTRACT
         print(f"[DEBUG] State changed to: {self.state}")
         # # Re-setup GPIO when cancelling session

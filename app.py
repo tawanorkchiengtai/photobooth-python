@@ -142,7 +142,21 @@ def compose():
         return jsonify({"ok": False, "error": f"template {template_id} not found"}), 400
 
     W, H = 2480, 3508
-    canvas = Image.new("RGB", (W, H), (34, 34, 34))
+    
+    # Load background template if available
+    background_path = tpl.get("background")
+    if background_path and Path(background_path).exists():
+        try:
+            canvas = Image.open(background_path).convert("RGB")
+            # Ensure it's the right size
+            if canvas.size != (W, H):
+                canvas = canvas.resize((W, H), Image.LANCZOS)
+        except Exception as e:
+            print(f"Failed to load background {background_path}: {e}")
+            canvas = Image.new("RGB", (W, H), (34, 34, 34))
+    else:
+        # Default solid color background
+        canvas = Image.new("RGB", (W, H), (34, 34, 34))
 
     def to_rect(r: dict) -> Tuple[int, int, int, int]:
         x = int((r["leftPct"] / 100) * W)
