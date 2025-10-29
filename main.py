@@ -261,13 +261,13 @@ class PhotoboothRoot(FloatLayout):
         self.add_widget(self.footer)
 
         # Selection thumbnails container (created on demand) - back to landscape
-        from kivy.uix.boxlayout import BoxLayout as KivyBox
-        self.selection_box = KivyBox(
-            orientation='horizontal',  # Back to horizontal for landscape
-            spacing=20,  # Back to normal spacing
-            size_hint=(0.9, None),  # Back to normal size
-            height=320,  # Back to normal height
-            pos_hint={'center_x': 0.5, 'center_y': 0.55}
+        # Use AnchorLayout to naturally center a GridLayout of thumbnails
+        from kivy.uix.anchorlayout import AnchorLayout as KivyAnchor
+        self.selection_box = KivyAnchor(
+            anchor_x='center', anchor_y='center',
+            size_hint=(0.9, None),
+            height=420,
+            pos_hint={'center_x': 0.5, 'center_y': 0.58}
         )
         self.selection_box.opacity = 0
         self.add_widget(self.selection_box)
@@ -316,7 +316,8 @@ class PhotoboothRoot(FloatLayout):
     def show_selection(self, thumbs: List[Texture], cursor_index: int, selected_indices: List[int], template_slots: int):
         """Display photos in grid layout with numbered selection markers"""
         from kivy.uix.image import Image as KImg
-        from kivy.uix.floatlayout import FloatLayout
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.floatlayout import FloatLayout as KivyFloat
         from kivy.uix.label import Label
         from kivy.graphics import Color, Rectangle, Line
         
@@ -337,40 +338,43 @@ class PhotoboothRoot(FloatLayout):
             cols = min(3, total_photos)
             rows = (total_photos + cols - 1) // cols
         
-        # Calculate spacing and sizing for grid
+        # Dynamically size the selection panel so the grid appears centered and higher on screen
+        try:
+            if rows == 1:
+                self.selection_box.height = 420
+            elif rows == 2:
+                self.selection_box.height = 620
+            else:
+                self.selection_box.height = 820
+        except Exception:
+            pass
+        
+        # Calculate spacing and sizing for grid, and place a centered GridLayout
         spacing = 25
-        thumb_w = (self.selection_box.width - spacing * (cols + 1)) / cols
-        thumb_h = (self.selection_box.height - spacing * (rows + 1)) / rows
+        box_w = self.selection_box.width if self.selection_box.width > 0 else Window.width * 0.9
+        box_h = self.selection_box.height
+        thumb_w = (box_w - spacing * (cols + 1)) / max(cols, 1)
+        thumb_h = (box_h - spacing * (rows + 1)) / max(rows, 1)
+        grid_w = cols * thumb_w + spacing * (cols + 1)
+        grid_h = rows * thumb_h + spacing * (rows + 1)
+        grid = GridLayout(cols=cols, rows=rows, spacing=spacing, padding=[spacing, spacing],
+                          size_hint=(None, None), size=(grid_w, grid_h))
         
         for i, tex in enumerate(thumbs):
-            # Calculate grid position
-            col = i % cols
-            row = i // cols
-            x = spacing + col * (thumb_w + spacing)
-            y = self.selection_box.height - spacing - (row + 1) * (thumb_h + spacing)
-            
-            # Container for photo + marker
-            container = FloatLayout(size_hint=(None, None), size=(thumb_w, thumb_h), pos=(x, y))
-            
-            # Photo thumbnail - make cursor photo bigger to show selection
+            # Each cell contains an image; the current cursor image is enlarged
+            cell = KivyFloat(size_hint=(None, None), size=(thumb_w, thumb_h))
             img = KImg(texture=tex, allow_stretch=True, keep_ratio=True)
-            
-            # Make current cursor photo bigger to show selection
             if i == cursor_index:
-                img.size_hint = (1.2, 1.2)  # 20% bigger
+                img.size_hint = (1.2, 1.2)  # enlarge 20%
                 img.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
             else:
                 img.size_hint = (1, 1)
                 img.pos_hint = {'x': 0, 'y': 0}
-            
-            # Dim unselected when selections made
             if selected_indices and (i not in selected_indices):
                 img.color = (0.5, 0.5, 0.5, 0.7)
-            
-            container.add_widget(img)
-            
-      
-            self.selection_box.add_widget(container)
+            cell.add_widget(img)
+            grid.add_widget(cell)
+        self.selection_box.add_widget(grid)
         
         self.selection_box.opacity = 1
 
