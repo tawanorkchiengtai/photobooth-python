@@ -154,13 +154,11 @@ class PhotoboothRoot(FloatLayout):
         from kivy.uix.widget import Widget
         self.dim = Widget(opacity=0)
         with self.dim.canvas:
-            Color(0, 0, 0, 0.6)
+            self._dim_color = Color(0, 0, 0, 0.45)   # 45% dim
             self._dim_rect = Rectangle(pos=self.pos, size=self.size)
-        def _sync_dim(*_):
-            self._dim_rect.pos = self.pos
-            self._dim_rect.size = self.size
-        self.bind(pos=_sync_dim, size=_sync_dim)
-        self.add_widget(self.dim)
+        self.dim.bind(pos=lambda *_: setattr(self._dim_rect, "pos", self.pos),
+                      size=lambda *_: setattr(self._dim_rect, "size", self.size))
+        self.add_widget(self.dim)   # Add on top of preview, under selection UI
         
         # Camera preview
         self.preview = PreviewWidget()
@@ -311,18 +309,71 @@ class PhotoboothRoot(FloatLayout):
         self.subtitle.opacity = 1 if visible and subtitle else 0
         self.footer.opacity = 1 if visible and footer else 0
 
-    def show_selection(self, thumbs: List[Texture], cursor_index: int, selected_indices: List[int]):
-        # Rebuild thumbnails each time for simplicity
+    def show_selection(self, thumbs: List[Texture], cursor_index: int, selected_indices: List[int], template_slots: int):
+        """Display photos in grid layout with numbered selection markers"""
         from kivy.uix.image import Image as KImg
+        from kivy.uix.floatlayout import FloatLayout
+        from kivy.uix.label import Label
+        from kivy.graphics import Color, Rectangle, Line
+        
         self.selection_box.clear_widgets()
+        
+        # Determine grid layout based on template slots (photos to choose from = slots + 2)
+        total_photos = len(thumbs)
+        if template_slots == 1:
+            # 1 slot template → 3 photos in 1 row
+            cols, rows = 3, 1
+        elif template_slots == 2:
+            # 2 slot template → 4 photos in 2 rows (2x2 grid)
+            cols, rows = 2, 2
+        elif template_slots == 4:
+            # 4 slot template → 6 photos in 3 rows (2x3 grid)
+            cols, rows = 2, 3
+        else:
+            # Fallback: square-ish grid
+            cols = min(3, total_photos)
+            rows = (total_photos + cols - 1) // cols
+        
+        # Calculate spacing and sizing for grid
+        spacing = 20
+        thumb_w = (self.selection_box.width - spacing * (cols + 1)) / cols
+        thumb_h = (self.selection_box.height - spacing * (rows + 1)) / rows
+        
         for i, tex in enumerate(thumbs):
-            w = KImg(texture=tex, allow_stretch=True, keep_ratio=True)
-            # Emphasize cursor by scaling - back to horizontal layout
-            w.size_hint = (0.28, 1.0) if i == cursor_index else (0.24, 1.0)  # Back to horizontal
-            # Dim unselected when selection made
+            # Calculate grid position
+            col = i % cols
+            row = i // cols
+            x = spacing + col * (thumb_w + spacing)
+            y = self.selection_box.height - spacing - (row + 1) * (thumb_h + spacing)
+            
+            # Container for photo + marker
+            container = FloatLayout(size_hint=(None, None), size=(thumb_w, thumb_h), pos=(x, y))
+            
+            # Photo thumbnail - make cursor photo bigger to show selection
+            img = KImg(texture=tex, allow_stretch=True, keep_ratio=True)
+            
+            # Make current cursor photo bigger to show selection
+            if i == cursor_index:
+                img.size_hint = (1.2, 1.2)  # 20% bigger
+                img.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
+            else:
+                img.size_hint = (1, 1)
+                img.pos_hint = {'x': 0, 'y': 0}
+            
+            # Dim unselected when selections made
             if selected_indices and (i not in selected_indices):
-                w.color = (1, 1, 1, 0.7)
-            self.selection_box.add_widget(w)
+                img.color = (0.5, 0.5, 0.5, 0.7)
+            
+            container.add_widget(img)
+            
+            # Add border if selected (instead of green circle)
+            if i in selected_indices:
+                with container.canvas.before:
+                    Color(1, 1, 1, 1)  # White border for selected
+                    Line(rectangle=(0, 0, thumb_w, thumb_h), width=5)
+            
+            self.selection_box.add_widget(container)
+        
         self.selection_box.opacity = 1
 
     def hide_selection(self):
@@ -386,9 +437,9 @@ class PhotoboothRoot(FloatLayout):
         self.a4_bg.pos = (a4_x, a4_y)
         self.a4_bg.size = (a4_w, a4_h)
         
-        # Blur backdrop matches A4 area
-        self.blur_bg.pos = (a4_x, a4_y)
-        self.blur_bg.size = (a4_w, a4_h)
+        # Blur backdrop covers entire screen
+        self.blur_bg.pos = (0, 0)
+        self.blur_bg.size = (Ww, Wh)
         
         # Default preview to A4 area
         self.preview.pos = (a4_x, a4_y)
@@ -435,39 +486,54 @@ class PhotoboothRoot(FloatLayout):
             self.a4_bg.opacity = 0
 
     # Backdrop helpers for selection phase
-    def show_dim(self, alpha: float = 0.6):
+    def show_dim(self, alpha=0.45):
         """Show dim overlay"""
-        try:
-            self.dim.canvas.children[0].rgba = (0,0,0,alpha)
-        except Exception:
-            pass
         self.dim.opacity = 1
+        self._dim_color.rgba = (0, 0, 0, alpha)
 
     def hide_dim(self):
         """Hide dim overlay"""
         self.dim.opacity = 0
 
     def show_blur_background(self):
-        """Show blurred background for selection phase"""
-        tex = self.preview.texture or self.quick.texture
-        if not tex:
-            self.show_dim(0.6)
-            return
+        """Show blurred background covering entire screen for selection phase"""
         try:
             from PIL import ImageFilter
-            w, h = tex.size
-            buf = tex.pixels
-            img = Image.frombytes('RGB', (w,h), buf, 'raw', 'RGB', 0, 1).transpose(Image.FLIP_TOP_BOTTOM)
-            small = img.resize((max(1,w//3), max(1,h//3)), Image.BILINEAR).filter(ImageFilter.GaussianBlur(8))
-            blur = small.resize((w,h), Image.BILINEAR)
-            out = Texture.create(size=(w,h), colorfmt='rgb')
+            from kivy.core.window import Window
+            
+            # Create a screenshot-like blur of the entire screen
+            # Use the A4 background texture if available, otherwise create a solid color
+            if self.a4_bg.texture:
+                # Use the template background and extend it to full screen
+                tex = self.a4_bg.texture
+                w, h = tex.size
+                buf = tex.pixels
+                img = Image.frombytes('RGB', (w,h), buf, 'raw', 'RGB', 0, 1).transpose(Image.FLIP_TOP_BOTTOM)
+            else:
+                # Create a solid dark background
+                screen_w, screen_h = Window.size
+                img = Image.new('RGB', (screen_w, screen_h), (40, 40, 40))  # Dark gray
+            
+            # Create full-screen blur texture
+            screen_w, screen_h = Window.size
+            
+            # Resize template to screen size and blur
+            screen_img = img.resize((screen_w, screen_h), Image.BILINEAR)
+            small = screen_img.resize((max(1, screen_w//4), max(1, screen_h//4)), Image.BILINEAR)
+            blurred_small = small.filter(ImageFilter.GaussianBlur(12))  # Stronger blur
+            blur = blurred_small.resize((screen_w, screen_h), Image.BILINEAR)
+            
+            # Create texture for full screen
+            out = Texture.create(size=(screen_w, screen_h), colorfmt='rgb')
             out.blit_buffer(blur.transpose(Image.FLIP_TOP_BOTTOM).tobytes(), colorfmt='rgb', bufferfmt='ubyte')
             out.flip_vertical()
+            
             self.blur_bg.texture = out
             self.blur_bg.opacity = 1
-            print("[DEBUG] Blur background shown")
+            print("[DEBUG] Full-screen blur background shown")
         except Exception as e:
             print(f"[DEBUG] Error showing blur: {e}")
+            # Fallback to dim overlay
             self.show_dim(0.6)
 
     def hide_blur(self):
@@ -856,9 +922,9 @@ class PhotoboothApp(App):
             return
 
         if self.state == ScreenState.COUNTDOWN:
-            if action == "shutter":
+            if action in ("shutter", "enter"):
                 print("[DEBUG] Instant capture!")
-                # cancel countdown timer and capture instantly
+                # Stop countdown timer
                 try:
                     Clock.unschedule(self.count_ev)
                 except Exception:
@@ -866,18 +932,11 @@ class PhotoboothApp(App):
                 self.root_widget.hide_countdown()
                 self._capture_now()
             elif action in ("next", "prev"):
-                print(f"[DEBUG] Template change during countdown: {action}")
-                # allow adjusting template during countdown; reset countdown
-                try:
-                    Clock.unschedule(self.count_ev)
-                except Exception:
-                    pass
-                self.root_widget.hide_countdown()
-                if action == "next":
-                    self._cycle_template(+1)
-                else:
-                    self._cycle_template(-1)
-                self._begin_countdown()
+                print("[DEBUG] Template changes disabled during countdown")
+                return  # Ignore template changes during countdown
+            elif action == "cancel":
+                print("[DEBUG] Cancelling session...")
+                self._cancel()
             return
 
         if self.state == ScreenState.QUICK_REVIEW:
@@ -993,6 +1052,10 @@ class PhotoboothApp(App):
         print("[DEBUG] Starting countdown...")
         self.state = ScreenState.COUNTDOWN
         print(f"[DEBUG] State changed to: {self.state}")
+        
+        # Restore template background and camera visibility after quick review
+        self.root_widget.a4_bg.opacity = 1
+        self.root_widget.preview.opacity = 1
         self._update_hud()
         
         # Show countdown UI with camera preview visible (like attract phase)
@@ -1081,15 +1144,20 @@ class PhotoboothApp(App):
         print(f"[DEBUG] Photo saved: {out_path}")
         print(f"[DEBUG] Progress: {self.taken_count}/{self.to_take} photos taken")
 
-        # Show captured photo for 3 seconds before proceeding
+        # Show captured photo for 3 seconds with black background
         self.state = ScreenState.QUICK_REVIEW
+        
+        # Hide template background and camera for black background
+        self.root_widget.a4_bg.opacity = 0
+        self.root_widget.preview.opacity = 0
+        
         try:
             img = Image.open(out_path).convert("RGB")
             kv_tex = Texture.create(size=img.size, colorfmt="rgb")
             kv_tex.blit_buffer(img.tobytes(), colorfmt="rgb", bufferfmt="ubyte")
             kv_tex.flip_vertical()
             self.root_widget.show_quick_texture(kv_tex, seconds=3.0)
-            print(f"[DEBUG] Displaying captured photo for 3 seconds...")
+            print(f"[DEBUG] Displaying captured photo for 3 seconds with black background...")
         except Exception as e:
             print(f"[DEBUG] Error showing quick review: {e}")
 
@@ -1116,6 +1184,7 @@ class PhotoboothApp(App):
         cursor = self.selection_cursor + 1
         selected = len(self.selected_indices)
         self.root_widget.hud.text = f"Selection: choose {n} • cursor {cursor}/{len(self.captures)} • selected {selected}/{n}"
+        
         # Build thumbnail textures for selection UI
         thumbs: List[Texture] = []
         for p in self.captures:
@@ -1132,7 +1201,9 @@ class PhotoboothApp(App):
                 thumbs.append(tex)
             except Exception:
                 continue
-        self.root_widget.show_selection(thumbs, self.selection_cursor, self.selected_indices)
+        
+        # Show selection grid with blur background
+        self.root_widget.show_selection(thumbs, self.selection_cursor, self.selected_indices, n)
 
     def _compose_and_show(self):
         print(f"[DEBUG] Composing image with {len(self.selected_indices)} photos")
@@ -1145,13 +1216,16 @@ class PhotoboothApp(App):
             kv_tex = Texture.create(size=img.size, colorfmt="rgb")
             kv_tex.blit_buffer(img.tobytes(), colorfmt="rgb", bufferfmt="ubyte")
             kv_tex.flip_vertical()
-            # Keep composed visible during review (no auto-hide)
-            self.root_widget.show_quick_texture(kv_tex, seconds=None)
+            # Show composed template as A4 background (not as overlay)
+            self.root_widget.a4_bg.texture = kv_tex
+            self.root_widget.a4_bg.opacity = 1
+            print("[DEBUG] Composed template set as background")
             self._show_review()
-            # hide selection UI explicitly when entering review
+            # hide selection UI and preview overlay
             self.root_widget.hide_selection()
-        except Exception:
-            pass
+            self.root_widget.hide_quick()
+        except Exception as e:
+            print(f"[DEBUG] Error showing composed: {e}")
 
     def _make_vintage_newspaper(self, img: Image.Image, intensity: str = 'medium') -> Image.Image:
         """Apply vintage newspaper effect to photo for 1974 newspaper authenticity"""
@@ -1252,26 +1326,66 @@ class PhotoboothApp(App):
         return out_path
 
     def _print(self):
+        """Print with slide-down animation"""
         if not self.last_composed_path:
             print("[DEBUG] No composed image to print")
             return
-        print(f"[DEBUG] Printing image: {self.last_composed_path}")
-        # Show printing overlay
-        self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
-        self.root_widget.hide_selection()
-        args = ["lp"]
-        if self.printer_name:
-            args += ["-d", self.printer_name]
-        args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", str(self.last_composed_path)]
-        print(f"[DEBUG] Print command: {' '.join(args)}")
-        proc = subprocess.run(args, capture_output=True)
-        if proc.returncode != 0:
-            err = proc.stderr.decode('utf-8', 'ignore')
-            print(f"[DEBUG] Print failed: {err}")
-            self.root_widget.set_overlay(title="Print failed", subtitle=err[:120], footer="Press Space/Enter to retry", visible=True)
-        else:
-            print("[DEBUG] Print job sent successfully")
-            self.root_widget.set_overlay(title="Printed", subtitle="Job sent successfully", footer="", visible=True)
+        
+        print(f"[DEBUG] Starting print with slide-down animation...")
+        
+        # Animate composed image sliding down
+        self._animate_print_slidedown()
+        
+        # After animation completes, send to printer
+        def send_to_printer(*_):
+            print(f"[DEBUG] Printing image: {self.last_composed_path}")
+            self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
+            self.root_widget.hide_selection()
+            
+            args = ["lp"]
+            if self.printer_name:
+                args += ["-d", self.printer_name]
+            args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", str(self.last_composed_path)]
+            print(f"[DEBUG] Print command: {' '.join(args)}")
+            proc = subprocess.run(args, capture_output=True)
+            if proc.returncode != 0:
+                err = proc.stderr.decode('utf-8', 'ignore')
+                print(f"[DEBUG] Print failed: {err}")
+                self.root_widget.set_overlay(title="Print failed", subtitle=err[:120], footer="Press Cancel to retry", visible=True)
+            else:
+                print("[DEBUG] Print job sent successfully")
+                self.root_widget.set_overlay(title="Printed!", subtitle="Job sent successfully", footer="", visible=True)
+                # Return to attract after successful print
+                Clock.schedule_once(lambda dt: self._cancel(), 3.0)
+        
+        Clock.schedule_once(send_to_printer, 2.0)  # Wait for animation
+    
+    def _animate_print_slidedown(self):
+        """Animate the composed template sliding down like paper from printer"""
+        from kivy.animation import Animation
+        
+        # Animate the A4 background (composed template) sliding down
+        a4_bg = self.root_widget.a4_bg
+        
+        if a4_bg.opacity == 0:
+            return  # No image to animate
+        
+        # Store original position
+        original_y = a4_bg.y
+        
+        # Slide down animation (2 seconds) - slide completely off screen
+        print("[DEBUG] Animating template slide-down...")
+        target_y = -a4_bg.height  # Slide completely off bottom
+        anim = Animation(y=target_y, duration=2.0, t='in_out_quad')
+        
+        def on_complete(*_):
+            # Reset position and hide after animation
+            a4_bg.y = original_y
+            a4_bg.opacity = 0
+            print("[DEBUG] Slide-down animation complete")
+        
+        anim.bind(on_complete=on_complete)
+        anim.start(a4_bg)
 
     def _open_settings(self):
         SettingsModal(self.printer_name, on_save=self._save_printer).open()
@@ -1420,7 +1534,19 @@ class PhotoboothApp(App):
         self.root_widget.hide_blur()
 
     def _show_selection_ui(self):
+        """Selection phase: Show blurred background with photo grid"""
         need = self.current_template["slots"]
+        
+        # Hide camera preview during selection
+        self.root_widget.preview.opacity = 0
+        
+        # Show blurred background (blurs the current displayed content)
+        print("[DEBUG] Selection: Showing blurred background")
+        self.root_widget.show_blur_background()
+        
+        # Show dim overlay for better contrast
+        self.root_widget.show_dim(alpha=0.5)
+        
         self.root_widget.set_overlay(
             title=f"Choose {need} photo(s)",
             subtitle="Prev/Next to move • Shutter to Select/Deselect",
@@ -1430,10 +1556,17 @@ class PhotoboothApp(App):
         self.root_widget.hide_quick()
 
     def _show_review(self):
+        """Filter selection: Show composed template as background with cycling filters"""
+        # Hide blur/dim backgrounds and camera to show clean composed template
+        self.root_widget.hide_blur()
+        self.root_widget.hide_dim()
+        self.root_widget.hide_selection()
+        self.root_widget.preview.opacity = 0
+        
         self.root_widget.set_overlay(
-            title="Review",
+            title=f"Filter: {self.filter_name}",
             subtitle="Prev/Next to change filter",
-            footer="Press Shutter button to print",
+            footer="Press Enter to print",
             visible=True,
         )
 
