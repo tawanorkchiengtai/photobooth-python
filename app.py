@@ -204,10 +204,7 @@ def do_print():
     printer = data.get("printer")
     if not path:
         return jsonify({"ok": False, "error": "missing path"}), 400
-    args = ["lp"]
-    if printer:
-        args += ["-d", printer]
-    args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", path]
+    args = ["lp", "-d", "Brother_DCP_T430W_USB", "-o", "media=Plain", "-o", "print-quality=4.5", path]
     proc = subprocess.run(args, capture_output=True)
     if proc.returncode != 0:
         return jsonify({"ok": False, "error": proc.stderr.decode("utf-8", "ignore")}), 500

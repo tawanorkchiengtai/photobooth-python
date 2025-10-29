@@ -1051,10 +1051,7 @@ class PhotoboothApp(App):
         # Show printing overlay
         self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
         self.root_widget.hide_selection()
-        args = ["lp"]
-        if self.printer_name:
-            args += ["-d", self.printer_name]
-        args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", str(self.last_composed_path)]
+        args = ["lp", "-d", "Brother_DCP_T430W_USB", "-o", "media=Plain", "-o", "print-quality=4.5", str(self.last_composed_path)]
         print(f"[DEBUG] Print command: {' '.join(args)}")
         proc = subprocess.run(args, capture_output=True)
         if proc.returncode != 0:
