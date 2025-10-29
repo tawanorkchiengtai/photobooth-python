@@ -350,28 +350,46 @@ class PhotoboothRoot(FloatLayout):
             pass
         
         # Calculate spacing and sizing for grid, and place a centered GridLayout
-        spacing = 25
         box_w = self.selection_box.width if self.selection_box.width > 0 else Window.width * 0.9
         box_h = self.selection_box.height
-        thumb_w = (box_w - spacing * (cols + 1)) / max(cols, 1)
-        thumb_h = (box_h - spacing * (rows + 1)) / max(rows, 1)
-        grid_w = cols * thumb_w + spacing * (cols + 1)
-        grid_h = rows * thumb_h + spacing * (rows + 1)
-        grid = GridLayout(cols=cols, rows=rows, spacing=spacing, padding=[spacing, spacing],
+        # For 2-column layouts (2x2, 2x3), cluster columns tighter and leave larger side margins
+        content_w = box_w * (0.58 if cols == 2 else 0.85)
+        spacing_x = 12 if cols == 2 else 20
+        spacing_y = 24
+        pad_x = 10
+        pad_y = 10
+        thumb_w = (content_w - (cols - 1) * spacing_x - 2 * pad_x) / max(cols, 1)
+        thumb_h = (box_h - (rows - 1) * spacing_y - 2 * pad_y) / max(rows, 1)
+        grid_w = cols * thumb_w + (cols - 1) * spacing_x + 2 * pad_x
+        grid_h = rows * thumb_h + (rows - 1) * spacing_y + 2 * pad_y
+        grid = GridLayout(cols=cols, rows=rows, spacing=(spacing_x, spacing_y), padding=[pad_x, pad_y, pad_x, pad_y],
                           size_hint=(None, None), size=(grid_w, grid_h))
         
         for i, tex in enumerate(thumbs):
             # Each cell contains an image; the current cursor image is enlarged
             cell = KivyFloat(size_hint=(None, None), size=(thumb_w, thumb_h))
+
             img = KImg(texture=tex, allow_stretch=True, keep_ratio=True)
-            if i == cursor_index:
-                img.size_hint = (1.2, 1.2)  # enlarge 20%
-                img.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
-            else:
-                img.size_hint = (1, 1)
-                img.pos_hint = {'x': 0, 'y': 0}
+            img.size_hint = (1, 1)
+            img.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
+
+            # Dim non-selected when there are selected items
             if selected_indices and (i not in selected_indices):
                 img.color = (0.5, 0.5, 0.5, 0.7)
+
+            # Animate scale for cursor vs others (keeps layout intact)
+            try:
+                from kivy.animation import Animation as KAnim
+                target = 1.2 if i == cursor_index else 1.0
+                # start from current to target for smooth transition
+                KAnim(size_hint_x=target, size_hint_y=target, d=0.18 if target > 1.0 else 0.12, t='out_cubic').start(img)
+            except Exception:
+                # Fallback: set instantly
+                if i == cursor_index:
+                    img.size_hint = (1.2, 1.2)
+                else:
+                    img.size_hint = (1, 1)
+
             cell.add_widget(img)
             grid.add_widget(cell)
         self.selection_box.add_widget(grid)
