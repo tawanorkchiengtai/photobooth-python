@@ -1,10 +1,39 @@
 [
   {
-    "id": "single_full",
-    "name": "Single Full",
+    "id": "washington_post_single",
+    "name": "Washington Post Front Page",
     "slots": 1,
+    "background": "templates/ex-template2.jpg",
+    "vintage_effect": false,
+    "rects": [
+      {
+        "leftPct": 16.1,
+        "topPct": 41.7,
+        "widthPct": 43,
+        "heightPct": 17.25
+      }
+    ]
+  },
+  {
+    "id": "ex-template3",
+    "name": "Ex Template 3",
+    "slots": 1,
+    "background": "templates/ex-template3.png",
+    "vintage_effect": false,
+    "rects": [
+      {
+        "leftPct": 28,
+        "topPct": 43.5,
+        "widthPct": 43,
+        "heightPct": 32
+      }
+    ]
+  },
+  {
+    "id": "single_full",
+    "name": "Single Full (No Background)",
+    "slots": 1,
+    "vintage_effect": false,
     "rects": [{ "leftPct": 10, "topPct": 15, "widthPct": 80, "heightPct": 70 }]
   }
 ]
-
-
