@@ -1380,7 +1380,7 @@ class PhotoboothApp(App):
         # Slide down animation (2 seconds) - slide completely off screen
         print("[DEBUG] Animating template slide-down...")
         target_y = -a4_bg.height  # Slide completely off bottom
-        anim = Animation(y=target_y, duration=2.0, t='in_out_quad')
+        anim = Animation(y=target_y, duration=5.0, t='in_out_quad')
         
         def on_complete(*_):
             # Reset position and hide after animation
