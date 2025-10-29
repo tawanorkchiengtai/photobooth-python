@@ -69,6 +69,11 @@ CAMERA_STILL_W, CAMERA_STILL_H = 3840, 2160  # Max resolution for Camera Module 
 CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1920, 1080  # Use lower resolution for faster preview
 PREVIEW_W, PREVIEW_H = 1080, 1920  # Preview display size (portrait)
 
+# UI Layout for vertical screen (1440x2560)
+SCREEN_W, SCREEN_H = 1440, 2560  # Vertical screen dimensions
+BANNER_HEIGHT_RATIO = 0.08  # 8% of screen for FILMOLA banner (~205px)
+BANNER_FONT_SIZE = 48  # Font size for FILMOLA text
+
 # Template display sizes (matching templates/index.html)
 TEMPLATE_DISPLAY_W = 2592  # Template display width
 TEMPLATE_DISPLAY_H = 1843  # Template display height
@@ -136,8 +141,42 @@ class PhotoboothRoot(FloatLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        
+        # A4 background image (template background)
+        self.a4_bg = KivyImage(allow_stretch=True, keep_ratio=False, opacity=1, size_hint=(None, None))
+        self.add_widget(self.a4_bg)
+        
+        # Blur backdrop for selection phase
+        self.blur_bg = KivyImage(allow_stretch=True, keep_ratio=True, opacity=0, size_hint=(None, None))
+        self.add_widget(self.blur_bg)
+        
+        # Dim overlay for selection phase
+        from kivy.uix.widget import Widget
+        self.dim = Widget(opacity=0)
+        with self.dim.canvas:
+            Color(0, 0, 0, 0.6)
+            self._dim_rect = Rectangle(pos=self.pos, size=self.size)
+        def _sync_dim(*_):
+            self._dim_rect.pos = self.pos
+            self._dim_rect.size = self.size
+        self.bind(pos=_sync_dim, size=_sync_dim)
+        self.add_widget(self.dim)
+        
+        # Camera preview
         self.preview = PreviewWidget()
+        self.preview.size_hint = (None, None)
         self.add_widget(self.preview)
+        
+        # Persistent FILMOLA banner at bottom
+        self.banner = BoxLayout(orientation='horizontal', size_hint=(1, None))
+        self.banner_bg = (0.1, 0.1, 0.1, 0.95)
+        self.banner_lbl = Label(text="FILMOLA", font_size=BANNER_FONT_SIZE, bold=True, color=(1,1,1,1))
+        self.banner.add_widget(self.banner_lbl)
+        self.add_widget(self.banner)
+        
+        # Initialize layout
+        self._compute_layout()
+        Window.bind(on_resize=lambda *_: self._compute_layout())
 
         # HUD with proper positioning (top-left) - back to landscape
         self.hud = Label(
@@ -310,17 +349,142 @@ class PhotoboothRoot(FloatLayout):
 
         widget.bind(pos=_sync, size=_sync)
 
+    # Layout computation for vertical screen with banner
+    def _compute_layout(self):
+        """Compute layout for vertical screen (1440x2560) with A4 area + FILMOLA banner"""
+        Ww, Wh = Window.size
+        banner_h = int(Wh * BANNER_HEIGHT_RATIO)
+        
+        # Banner at bottom
+        self.banner.height = banner_h
+        self.banner.pos = (0, 0)
+        
+        # A4 area above banner
+        a4_area_h = Wh - banner_h
+        a4_aspect = A4_W / A4_H  # 0.707
+        
+        # Scale A4 to fit optimally
+        a4_w_by_width = Ww
+        a4_h_by_width = int(a4_w_by_width / a4_aspect)
+        
+        a4_h_by_height = a4_area_h
+        a4_w_by_height = int(a4_h_by_height * a4_aspect)
+        
+        if a4_h_by_width <= a4_area_h:
+            a4_w, a4_h = a4_w_by_width, a4_h_by_width
+        else:
+            a4_w, a4_h = a4_w_by_height, a4_h_by_height
+        
+        # Center A4 area
+        a4_x = int((Ww - a4_w) / 2)
+        a4_y = banner_h + int((a4_area_h - a4_h) / 2)
+        
+        self._a4_rect = (a4_x, a4_y, a4_w, a4_h)
+        print(f"[DEBUG] Layout: A4=({a4_x},{a4_y},{a4_w}x{a4_h}), Banner={banner_h}px")
+        
+        # Position A4 background
+        self.a4_bg.pos = (a4_x, a4_y)
+        self.a4_bg.size = (a4_w, a4_h)
+        
+        # Blur backdrop matches A4 area
+        self.blur_bg.pos = (a4_x, a4_y)
+        self.blur_bg.size = (a4_w, a4_h)
+        
+        # Default preview to A4 area
+        self.preview.pos = (a4_x, a4_y)
+        self.preview.size = (a4_w, a4_h)
+
+    def map_rect_pct_to_screen(self, leftPct: float, topPct: float, widthPct: float, heightPct: float) -> Tuple[int,int,int,int]:
+        """Convert template percentage coordinates to screen pixels"""
+        a4_x, a4_y, a4_w, a4_h = self._a4_rect
+        x = a4_x + int(a4_w * (leftPct/100.0))
+        y = a4_y + int(a4_h * (topPct/100.0))
+        w = int(a4_w * (widthPct/100.0))
+        h = int(a4_h * (heightPct/100.0))
+        return x, y, w, h
+
+    def position_preview_in_rect(self, rect_pct: dict):
+        """Position camera preview within template rect coordinates"""
+        x, y, w, h = self.map_rect_pct_to_screen(
+            rect_pct.get('leftPct',0), rect_pct.get('topPct',0),
+            rect_pct.get('widthPct',100), rect_pct.get('heightPct',100))
+        self.preview.pos = (x, y)
+        self.preview.size = (w, h)
+        self.preview.opacity = 1
+        print(f"[DEBUG] Preview positioned: ({x},{y}) {w}x{h}")
+
+    def set_a4_background_path(self, path: Optional[str]):
+        """Set the A4 background image from template path"""
+        try:
+            full = None
+            if path:
+                p = Path(path)
+                full = p if p.is_absolute() else (Path(__file__).parent / p)
+            if full and full.exists():
+                img = Image.open(str(full)).convert('RGB')
+                tex = Texture.create(size=img.size, colorfmt='rgb')
+                tex.blit_buffer(img.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+                tex.flip_vertical()
+                self.a4_bg.texture = tex
+                self.a4_bg.opacity = 1
+                print(f"[DEBUG] A4 background set: {path}")
+            else:
+                self.a4_bg.opacity = 0
+        except Exception as e:
+            print(f"[DEBUG] Error setting A4 background: {e}")
+            self.a4_bg.opacity = 0
+
+    # Backdrop helpers for selection phase
+    def show_dim(self, alpha: float = 0.6):
+        """Show dim overlay"""
+        try:
+            self.dim.canvas.children[0].rgba = (0,0,0,alpha)
+        except Exception:
+            pass
+        self.dim.opacity = 1
+
+    def hide_dim(self):
+        """Hide dim overlay"""
+        self.dim.opacity = 0
+
+    def show_blur_background(self):
+        """Show blurred background for selection phase"""
+        tex = self.preview.texture or self.quick.texture
+        if not tex:
+            self.show_dim(0.6)
+            return
+        try:
+            from PIL import ImageFilter
+            w, h = tex.size
+            buf = tex.pixels
+            img = Image.frombytes('RGB', (w,h), buf, 'raw', 'RGB', 0, 1).transpose(Image.FLIP_TOP_BOTTOM)
+            small = img.resize((max(1,w//3), max(1,h//3)), Image.BILINEAR).filter(ImageFilter.GaussianBlur(8))
+            blur = small.resize((w,h), Image.BILINEAR)
+            out = Texture.create(size=(w,h), colorfmt='rgb')
+            out.blit_buffer(blur.transpose(Image.FLIP_TOP_BOTTOM).tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+            out.flip_vertical()
+            self.blur_bg.texture = out
+            self.blur_bg.opacity = 1
+            print("[DEBUG] Blur background shown")
+        except Exception as e:
+            print(f"[DEBUG] Error showing blur: {e}")
+            self.show_dim(0.6)
+
+    def hide_blur(self):
+        """Hide blur background"""
+        self.blur_bg.opacity = 0
+
 
 class PhotoboothApp(App):
     def build(self):
-        # On Mac, use windowed mode for testing; on Pi, use fullscreen landscape
+        # Set window size for vertical screen (1440x2560)
+        print(f"[DEBUG] Setting window size to {SCREEN_W}x{SCREEN_H}")
         if platform.system() == 'Darwin':
-            Window.size = (CAMERA_VIDEO_H, CAMERA_VIDEO_W)  # Rotated: height=1080, width=1920
+            Window.size = (SCREEN_W, SCREEN_H)  # Vertical screen for photobooth
             Window.show_cursor = True
         else:
             Window.fullscreen = True
-            # Use Camera Module 3 video resolution for display - rotated
-            Window.size = (CAMERA_VIDEO_H, CAMERA_VIDEO_W)  # Rotated: height=1080, width=1920
+            Window.size = (SCREEN_W, SCREEN_H)  # Vertical screen for photobooth
             try:
                 Window.show_cursor = False
             except Exception:
@@ -829,15 +993,13 @@ class PhotoboothApp(App):
         print("[DEBUG] Starting countdown...")
         self.state = ScreenState.COUNTDOWN
         print(f"[DEBUG] State changed to: {self.state}")
-        # # Re-setup GPIO when starting countdown
-        # if HAS_GPIO:
-        #     print("[DEBUG] Re-setting up GPIO for countdown...")
-        #     self._setup_gpio()
         self._update_hud()
+        
+        # Show countdown UI with camera preview visible (like attract phase)
+        self._show_countdown_ui()
+        
         self.count_val = COUNTDOWN_SECONDS
         self.root_widget.show_countdown(self.count_val)
-        self.root_widget.set_overlay("", "", "")
-        self.root_widget.hide_selection()
         self.count_ev = Clock.schedule_interval(self._countdown_tick, 1.0)
 
     def _countdown_tick(self, dt):
@@ -917,36 +1079,37 @@ class PhotoboothApp(App):
             self.taken_count = 0
         self.taken_count += 1
         print(f"[DEBUG] Photo saved: {out_path}")
-        print(f"[DEBUG] Progress: {self.taken_count}/{self.current_template.get('slots', 4)} photos taken")
+        print(f"[DEBUG] Progress: {self.taken_count}/{self.to_take} photos taken")
 
+        # Show captured photo for 3 seconds before proceeding
+        self.state = ScreenState.QUICK_REVIEW
         try:
             img = Image.open(out_path).convert("RGB")
             kv_tex = Texture.create(size=img.size, colorfmt="rgb")
             kv_tex.blit_buffer(img.tobytes(), colorfmt="rgb", bufferfmt="ubyte")
             kv_tex.flip_vertical()
-            self.root_widget.show_quick_texture(kv_tex, seconds=1.2)
-        except Exception:
-            pass
+            self.root_widget.show_quick_texture(kv_tex, seconds=3.0)
+            print(f"[DEBUG] Displaying captured photo for 3 seconds...")
+        except Exception as e:
+            print(f"[DEBUG] Error showing quick review: {e}")
 
-        if self.taken_count >= self.current_template["slots"] + 2:
+        # After 3 seconds, proceed to next photo or selection
+        if self.taken_count >= self.to_take:
             print("[DEBUG] All photos taken, moving to selection phase...")
-            # Short pause before entering selection (to mimic quick review pause)
             def go_selection(*_):
                 self.state = ScreenState.SELECTION
                 print(f"[DEBUG] State changed to: {self.state}")
-                # # Re-setup GPIO when entering selection
-                # if HAS_GPIO:
-                #     print("[DEBUG] Re-setting up GPIO for selection...")
-                #     self._setup_gpio()
                 self.selection_cursor = 0
                 self.selected_indices = []
                 self._update_selection_hint()
                 self._show_selection_ui()
                 self._update_hud()
-            Clock.schedule_once(go_selection, 0.6)
+            Clock.schedule_once(go_selection, 3.0)
         else:
-            print("[DEBUG] More photos needed, starting next countdown...")
-            self._begin_countdown()
+            print("[DEBUG] More photos needed, starting next countdown after review...")
+            def next_photo(*_):
+                self._begin_countdown()
+            Clock.schedule_once(next_photo, 3.0)
 
     def _update_selection_hint(self):
         n = self.current_template["slots"]
@@ -1165,25 +1328,96 @@ class PhotoboothApp(App):
 
     # ---------- UI overlay convenience ----------
     def _show_attract(self):
+        """Attract phase: Show template1 background with camera preview in rect position"""
+        try:
+            # Use template1 for attract phase
+            template1 = next((t for t in self.templates if t.get("id") == "template1"), None)
+            if not template1:
+                template1 = self.templates[0] if self.templates else self.current_template
+            
+            # Set template1 as A4 background
+            bg_path = template1.get("background")
+            print(f"[DEBUG] Attract: template1 background={bg_path}")
+            self.root_widget.set_a4_background_path(bg_path)
+            
+            # Position camera preview in template1's rect
+            rects = template1.get("rects", [])
+            if rects:
+                print(f"[DEBUG] Attract: Positioning preview in rect={rects[0]}")
+                self.root_widget.position_preview_in_rect(rects[0])
+            
+            self.root_widget.preview.opacity = 1
+        except Exception as e:
+            print(f"[DEBUG] Error in attract setup: {e}")
+            import traceback
+            traceback.print_exc()
+
         self.root_widget.set_overlay(
             title="Pay attendant to start!",
-            subtitle="Press Enter button to begin",
+            subtitle="Press Shutter button to begin",
             footer="",
             visible=True,
         )
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
+        self.root_widget.hide_dim()
+        self.root_widget.hide_blur()
 
     def _show_template(self):
+        """Template selection: Show full A4 template, no preview"""
         n = self.current_template["slots"]
+        
+        # Show current template as full A4 background
+        bg_path = self.current_template.get("background")
+        print(f"[DEBUG] Template select: {self.current_template.get('name')} bg={bg_path}")
+        self.root_widget.set_a4_background_path(bg_path)
+        
+        # Hide camera preview during template selection
+        self.root_widget.preview.opacity = 0
+        
         self.root_widget.set_overlay(
-            title="Select your template",
-            subtitle=f"Use Prev/Next buttons to change. Photos to take: {n+2}",
-            footer="Press Shutter button to start",
+            title=f"Template: {self.current_template.get('name', 'Unknown')}",
+            subtitle=f"Prev/Next to change • {n+2} photos will be taken",
+            footer="Press Shutter to confirm",
             visible=True,
         )
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
+        self.root_widget.hide_dim()
+        self.root_widget.hide_blur()
+
+    def _show_countdown_ui(self):
+        """Countdown phase: Show template1 background with camera preview (like attract)"""
+        try:
+            # Use template1 for countdown phase (same as attract)
+            template1 = next((t for t in self.templates if t.get("id") == "template1"), None)
+            if not template1:
+                template1 = self.templates[0] if self.templates else self.current_template
+            
+            # Set template1 as A4 background
+            bg_path = template1.get("background")
+            print(f"[DEBUG] Countdown: template1 background={bg_path}")
+            self.root_widget.set_a4_background_path(bg_path)
+            
+            # Position camera preview in template1's rect (same as attract)
+            rects = template1.get("rects", [])
+            if rects:
+                print(f"[DEBUG] Countdown: Positioning preview in rect={rects[0]}")
+                self.root_widget.position_preview_in_rect(rects[0])
+            
+            # Ensure preview is visible so customer can see their face
+            self.root_widget.preview.opacity = 1
+        except Exception as e:
+            print(f"[DEBUG] Error in countdown UI setup: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Clear text overlays (countdown number will be shown instead)
+        self.root_widget.set_overlay("", "", "")
+        self.root_widget.hide_selection()
+        self.root_widget.hide_quick()
+        self.root_widget.hide_dim()
+        self.root_widget.hide_blur()
 
     def _show_selection_ui(self):
         need = self.current_template["slots"]
