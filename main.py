@@ -368,9 +368,13 @@ class PhotoboothRoot(FloatLayout):
             
             # Add border if selected (instead of green circle)
             if i in selected_indices:
-                with container.canvas.before:
+                with container.canvas.after:
                     Color(1, 1, 1, 1)  # White border for selected
-                    Line(rectangle=(0, 0, thumb_w, thumb_h), width=5)
+                    border_line = Line(rectangle=(0, 0, thumb_w, thumb_h), width=5)
+                # Bind to update border position when container moves
+                def update_border(instance, *args):
+                    border_line.rectangle = (0, 0, instance.width, instance.height)
+                container.bind(pos=update_border, size=update_border)
             
             self.selection_box.add_widget(container)
         
@@ -457,8 +461,8 @@ class PhotoboothRoot(FloatLayout):
     def position_preview_in_rect(self, rect_pct: dict):
         """Position camera preview within template rect coordinates"""
         x, y, w, h = self.map_rect_pct_to_screen(
-            rect_pct.get('leftPct',0), rect_pct.get('topPct',0),
-            rect_pct.get('widthPct',100), rect_pct.get('heightPct',100))
+            rect_pct.get('leftPct',2.6), rect_pct.get('topPct',67),
+            rect_pct.get('widthPct',45), rect_pct.get('heightPct',30))
         self.preview.pos = (x, y)
         self.preview.size = (w, h)
         self.preview.opacity = 1
