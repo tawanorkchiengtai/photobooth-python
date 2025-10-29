@@ -449,6 +449,26 @@ class PhotoboothRoot(FloatLayout):
         self.preview.pos = (a4_x, a4_y)
         self.preview.size = (a4_w, a4_h)
 
+    def position_camera_simple(self, x_offset: int, y_offset: int, width: int, height: int):
+        """Position camera preview with simple pixel values relative to A4 canvas
+        
+        Args:
+            x_offset: pixels from left edge of A4 (0 = left edge)
+            y_offset: pixels from bottom edge of A4 (0 = bottom edge)  
+            width: camera preview width in pixels
+            height: camera preview height in pixels
+        """
+        a4_x, a4_y, a4_w, a4_h = self._a4_rect
+        
+        # Position relative to A4 canvas
+        x = a4_x + x_offset
+        y = a4_y + y_offset
+        
+        self.preview.pos = (x, y)
+        self.preview.size = (width, height)
+        self.preview.opacity = 1
+        print(f"[DEBUG] Camera positioned: ({x},{y}) size:{width}x{height} | A4: ({a4_x},{a4_y}) {a4_w}x{a4_h}")
+
     def map_rect_pct_to_screen(self, leftPct: float, topPct: float, widthPct: float, heightPct: float) -> Tuple[int,int,int,int]:
         """Convert template percentage coordinates to screen pixels"""
         a4_x, a4_y, a4_w, a4_h = self._a4_rect
@@ -1458,11 +1478,18 @@ class PhotoboothApp(App):
             print(f"[DEBUG] Attract: template1 background={bg_path}")
             self.root_widget.set_a4_background_path(bg_path)
             
-            # Position camera preview in template1's rect
-            rects = template1.get("rects", [])
-            if rects:
-                print(f"[DEBUG] Attract: Positioning preview in rect={rects[0]}")
-                self.root_widget.position_preview_in_rect(rects[0])
+            # Position camera preview - SIMPLE positioning!
+            # Adjust these 4 numbers to move/resize the camera:
+            #   x_offset: pixels from LEFT edge of template (increase = move right)
+            #   y_offset: pixels from BOTTOM edge of template (increase = move up)
+            #   width: camera width in pixels
+            #   height: camera height in pixels
+            self.root_widget.position_camera_simple(
+                x_offset=21,   # Position from left
+                y_offset=410,   # Position from bottom
+                width=1312,      # Camera width
+                height=1350   # Camera height
+            )
             
             self.root_widget.preview.opacity = 1
         except Exception as e:
@@ -1517,11 +1544,13 @@ class PhotoboothApp(App):
             print(f"[DEBUG] Countdown: template1 background={bg_path}")
             self.root_widget.set_a4_background_path(bg_path)
             
-            # Position camera preview in template1's rect (same as attract)
-            rects = template1.get("rects", [])
-            if rects:
-                print(f"[DEBUG] Countdown: Positioning preview in rect={rects[0]}")
-                self.root_widget.position_preview_in_rect(rects[0])
+            # Position camera preview - SIMPLE positioning (same as attract)!
+            self.root_widget.position_camera_simple(
+                x_offset=21,   # Position from left
+                y_offset=410,   # Position from bottom
+                width=1312,      # Camera width
+                height=1350   # Camera height
+            )
             
             # Ensure preview is visible so customer can see their face
             self.root_widget.preview.opacity = 1
