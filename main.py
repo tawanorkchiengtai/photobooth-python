@@ -142,6 +142,9 @@ class PhotoboothRoot(FloatLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
+        # Store custom camera position for window resize
+        self._custom_camera_pos = None  # (x_offset, y_offset, width, height)
+        
         # A4 background image (template background)
         self.a4_bg = KivyImage(allow_stretch=True, keep_ratio=False, opacity=1, size_hint=(None, None))
         self.add_widget(self.a4_bg)
@@ -205,10 +208,10 @@ class PhotoboothRoot(FloatLayout):
         self.add_widget(self.status)
         self._decorate_panel(self.status)
 
-        # Countdown overlay centered - back to landscape
+        # Countdown number display - dramatic styling
         self.countdown = Label(
-            text="",
-            font_size=140,  # Back to normal font size
+            text="3",
+            font_size=280,  # Bigger for more impact
             bold=True,
             color=(1, 1, 1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.5}
@@ -227,10 +230,10 @@ class PhotoboothRoot(FloatLayout):
         self.add_widget(self.quick)
         self._decorate_panel(self.quick, pad=(18, 18), radius=16)
 
-        # Titles / instructions overlays - back to landscape
+        # Titles / instructions overlays - modern styling with backgrounds
         self.title = Label(
             text="",
-            font_size=36,  # Back to normal font size
+            font_size=48,  # Larger, bolder title
             bold=True,
             color=(1, 1, 1, 1),
             pos_hint={'center_x': 0.5, 'center_y': 0.74}
@@ -318,7 +321,6 @@ class PhotoboothRoot(FloatLayout):
         
         self.selection_box.clear_widgets()
         
-        # Determine grid layout based on template slots (photos to choose from = slots + 2)
         total_photos = len(thumbs)
         if template_slots == 1:
             # 1 slot template → 3 photos in 1 row
@@ -335,7 +337,7 @@ class PhotoboothRoot(FloatLayout):
             rows = (total_photos + cols - 1) // cols
         
         # Calculate spacing and sizing for grid
-        spacing = 20
+        spacing = 25
         thumb_w = (self.selection_box.width - spacing * (cols + 1)) / cols
         thumb_h = (self.selection_box.height - spacing * (rows + 1)) / rows
         
@@ -366,16 +368,7 @@ class PhotoboothRoot(FloatLayout):
             
             container.add_widget(img)
             
-            # Add border if selected (instead of green circle)
-            if i in selected_indices:
-                with container.canvas.after:
-                    Color(1, 1, 1, 1)  # White border for selected
-                    border_line = Line(rectangle=(0, 0, thumb_w, thumb_h), width=5)
-                # Bind to update border position when container moves
-                def update_border(instance, *args):
-                    border_line.rectangle = (0, 0, instance.width, instance.height)
-                container.bind(pos=update_border, size=update_border)
-            
+      
             self.selection_box.add_widget(container)
         
         self.selection_box.opacity = 1
@@ -445,9 +438,15 @@ class PhotoboothRoot(FloatLayout):
         self.blur_bg.pos = (0, 0)
         self.blur_bg.size = (Ww, Wh)
         
-        # Default preview to A4 area
-        self.preview.pos = (a4_x, a4_y)
-        self.preview.size = (a4_w, a4_h)
+        # Default preview to A4 area (unless custom position is set)
+        if self._custom_camera_pos is None:
+            self.preview.pos = (a4_x, a4_y)
+            self.preview.size = (a4_w, a4_h)
+        else:
+            # Re-apply custom camera position after resize
+            x_off, y_off, w, h = self._custom_camera_pos
+            self.preview.pos = (a4_x + x_off, a4_y + y_off)
+            self.preview.size = (w, h)
 
     def position_camera_simple(self, x_offset: int, y_offset: int, width: int, height: int):
         """Position camera preview with simple pixel values relative to A4 canvas
@@ -458,6 +457,9 @@ class PhotoboothRoot(FloatLayout):
             width: camera preview width in pixels
             height: camera preview height in pixels
         """
+        # Store custom position so it persists across window resizes
+        self._custom_camera_pos = (x_offset, y_offset, width, height)
+        
         a4_x, a4_y, a4_w, a4_h = self._a4_rect
         
         # Position relative to A4 canvas
@@ -1180,7 +1182,7 @@ class PhotoboothApp(App):
             kv_tex = Texture.create(size=img.size, colorfmt="rgb")
             kv_tex.blit_buffer(img.tobytes(), colorfmt="rgb", bufferfmt="ubyte")
             kv_tex.flip_vertical()
-            self.root_widget.show_quick_texture(kv_tex, seconds=3.0)
+            self.root_widget.show_quick_texture(kv_tex, seconds=2.0)
             print(f"[DEBUG] Displaying captured photo for 3 seconds with black background...")
         except Exception as e:
             print(f"[DEBUG] Error showing quick review: {e}")
@@ -1485,10 +1487,10 @@ class PhotoboothApp(App):
             #   width: camera width in pixels
             #   height: camera height in pixels
             self.root_widget.position_camera_simple(
-                x_offset=21,   # Position from left
-                y_offset=410,   # Position from bottom
-                width=1312,      # Camera width
-                height=1350   # Camera height
+                x_offset=20,   # Position from left
+                y_offset=350,   # Position from bottom
+                width=1230,      # Camera width
+                height=1330   # Camera height
             )
             
             self.root_widget.preview.opacity = 1
@@ -1546,10 +1548,11 @@ class PhotoboothApp(App):
             
             # Position camera preview - SIMPLE positioning (same as attract)!
             self.root_widget.position_camera_simple(
-                x_offset=21,   # Position from left
-                y_offset=410,   # Position from bottom
-                width=1312,      # Camera width
-                height=1350   # Camera height
+                
+                x_offset=20,   # Position from left
+                y_offset=350,   # Position from bottom
+                width=1230,      # Camera width
+                height=1330   # Camera height
             )
             
             # Ensure preview is visible so customer can see their face
