@@ -65,8 +65,8 @@ A4_W, A4_H = 2480, 3508  # A4 at 300 DPI (standard print resolution)
 # Camera Module 3 resolutions:
 # - Still: 11.9MP (4608x2592) or 12MP (4056x3040)
 # - Video: 4K (3840x2160) or 1080p (1920x1080)
-CAMERA_STILL_W, CAMERA_STILL_H = 3840, 2160  # Max resolution for Camera Module 3
-CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1920, 1080  # Use lower resolution for faster preview
+CAMERA_STILL_W, CAMERA_STILL_H = 3372, 2250  # Max resolution for Camera Module 3
+CAMERA_VIDEO_W, CAMERA_VIDEO_H = 1686, 1125  # Use lower resolution for faster preview
 PREVIEW_W, PREVIEW_H = 1080, 1920  # Preview display size (portrait)
 
 # UI Layout for vertical screen (1440x2560)
@@ -962,7 +962,7 @@ class PhotoboothApp(App):
                 return  # Ignore template changes during countdown
             elif action == "cancel":
                 print("[DEBUG] Cancelling session...")
-                self._cancel()
+                self._cancel_session()
             return
 
         if self.state == ScreenState.QUICK_REVIEW:
@@ -1371,7 +1371,7 @@ class PhotoboothApp(App):
             args = ["lp"]
             if self.printer_name:
                 args += ["-d", self.printer_name]
-            args += ["-o", "media=A4.Borderless", "-o", "fit-to-page=false", str(self.last_composed_path)]
+            args += ["-o", "media=A4.Inkjet", "-o", "print-quality=4.5,", str(self.last_composed_path)]
             print(f"[DEBUG] Print command: {' '.join(args)}")
             proc = subprocess.run(args, capture_output=True)
             if proc.returncode != 0:
@@ -1382,7 +1382,7 @@ class PhotoboothApp(App):
                 print("[DEBUG] Print job sent successfully")
                 self.root_widget.set_overlay(title="Printed!", subtitle="Job sent successfully", footer="", visible=True)
                 # Return to attract after successful print
-                Clock.schedule_once(lambda dt: self._cancel(), 3.0)
+                Clock.schedule_once(lambda dt: self._cancel_session(), 3.0)
         
         Clock.schedule_once(send_to_printer, 2.0)  # Wait for animation
     
@@ -1487,10 +1487,10 @@ class PhotoboothApp(App):
             #   width: camera width in pixels
             #   height: camera height in pixels
             self.root_widget.position_camera_simple(
-                x_offset=20,   # Position from left
-                y_offset=350,   # Position from bottom
-                width=1230,      # Camera width
-                height=1330   # Camera height
+                x_offset=23,   # Position from left
+                y_offset=661,   # Position from bottom
+                width=1396,      # Camera width
+                height=937   # Camera height
             )
             
             self.root_widget.preview.opacity = 1
@@ -1549,10 +1549,10 @@ class PhotoboothApp(App):
             # Position camera preview - SIMPLE positioning (same as attract)!
             self.root_widget.position_camera_simple(
                 
-                x_offset=20,   # Position from left
-                y_offset=350,   # Position from bottom
-                width=1230,      # Camera width
-                height=1330   # Camera height
+                x_offset=23,   # Position from left
+                y_offset=661,   # Position from bottom
+                width=1396,      # Camera width
+                height=937   # Camera height
             )
             
             # Ensure preview is visible so customer can see their face

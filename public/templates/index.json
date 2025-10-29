@@ -7,9 +7,9 @@
     "vintage_effect": false,
     "rects": [
       {
-        "leftPct": 25,
-        "topPct": 25,
-        "widthPct": 50,
+        "leftPct": 1.6,
+        "topPct": 25.35,
+        "widthPct": 97,
         "heightPct": 38.5
       }
     ]
