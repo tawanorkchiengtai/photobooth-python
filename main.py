@@ -3,6 +3,7 @@ import io
 import json
 import time
 import subprocess
+import threading
 from enum import Enum
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -708,6 +709,9 @@ class PhotoboothApp(App):
             raise RuntimeError("No camera backend available. Install picamera2 (Pi) or opencv-python (Mac)")
 
     def _update_preview(self, *_):
+        # Skip heavy preview work while printing to keep animations smooth
+        if self.state == ScreenState.PRINTING:
+            return
         try:
             if self.use_opencv:
                 ret, frame = self.cap.read()
@@ -1170,7 +1174,7 @@ class PhotoboothApp(App):
         print(f"[DEBUG] Photo saved: {out_path}")
         print(f"[DEBUG] Progress: {self.taken_count}/{self.to_take} photos taken")
 
-        # Show captured photo for 3 seconds with black background
+        # Show captured photo for 2 seconds with black background
         self.state = ScreenState.QUICK_REVIEW
         
         # Hide template background and camera for black background
@@ -1183,11 +1187,11 @@ class PhotoboothApp(App):
             kv_tex.blit_buffer(img.tobytes(), colorfmt="rgb", bufferfmt="ubyte")
             kv_tex.flip_vertical()
             self.root_widget.show_quick_texture(kv_tex, seconds=2.0)
-            print(f"[DEBUG] Displaying captured photo for 3 seconds with black background...")
+            print(f"[DEBUG] Displaying captured photo for 2 seconds with black background...")
         except Exception as e:
             print(f"[DEBUG] Error showing quick review: {e}")
 
-        # After 3 seconds, proceed to next photo or selection
+        # After 2 seconds, proceed to next photo or selection (match quick preview duration)
         if self.taken_count >= self.to_take:
             print("[DEBUG] All photos taken, moving to selection phase...")
             def go_selection(*_):
@@ -1198,12 +1202,12 @@ class PhotoboothApp(App):
                 self._update_selection_hint()
                 self._show_selection_ui()
                 self._update_hud()
-            Clock.schedule_once(go_selection, 3.0)
+            Clock.schedule_once(go_selection, 2.0)
         else:
             print("[DEBUG] More photos needed, starting next countdown after review...")
             def next_photo(*_):
                 self._begin_countdown()
-            Clock.schedule_once(next_photo, 3.0)
+            Clock.schedule_once(next_photo, 2.0)
 
     def _update_selection_hint(self):
         n = self.current_template["slots"]
@@ -1358,33 +1362,44 @@ class PhotoboothApp(App):
             return
         
         print(f"[DEBUG] Starting print with slide-down animation...")
+        # Enter PRINTING state to pause preview updates
+        self.state = ScreenState.PRINTING
+        self._update_hud()
         
         # Animate composed image sliding down
         self._animate_print_slidedown()
         
-        # After animation completes, send to printer
-        def send_to_printer(*_):
-            print(f"[DEBUG] Printing image: {self.last_composed_path}")
+        # After a short delay, kick off the print in a background thread to avoid blocking UI
+        def start_printing(*_):
             self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
             self.root_widget.hide_selection()
-            
             args = ["lp"]
             if self.printer_name:
                 args += ["-d", self.printer_name]
             args += ["-o", "media=A4.Inkjet", "-o", "print-quality=4.5,", str(self.last_composed_path)]
             print(f"[DEBUG] Print command: {' '.join(args)}")
-            proc = subprocess.run(args, capture_output=True)
-            if proc.returncode != 0:
-                err = proc.stderr.decode('utf-8', 'ignore')
-                print(f"[DEBUG] Print failed: {err}")
-                self.root_widget.set_overlay(title="Print failed", subtitle=err[:120], footer="Press Cancel to retry", visible=True)
-            else:
-                print("[DEBUG] Print job sent successfully")
-                self.root_widget.set_overlay(title="Printed!", subtitle="Job sent successfully", footer="", visible=True)
-                # Return to attract after successful print
-                Clock.schedule_once(lambda dt: self._cancel_session(), 3.0)
-        
-        Clock.schedule_once(send_to_printer, 2.0)  # Wait for animation
+
+            def run_print():
+                print(f"[DEBUG] Printing image: {self.last_composed_path}")
+                proc = subprocess.run(args, capture_output=True)
+                def after_print(dt=0):
+                    if proc.returncode != 0:
+                        err = proc.stderr.decode('utf-8', 'ignore')
+                        print(f"[DEBUG] Print failed: {err}")
+                        self.root_widget.set_overlay(title="Print failed", subtitle=err[:120], footer="Press Cancel to retry", visible=True)
+                        # Return to review state so user can retry; resume preview updates
+                        self.state = ScreenState.REVIEW
+                        self._update_hud()
+                    else:
+                        print("[DEBUG] Print job sent successfully")
+                        self.root_widget.set_overlay(title="Printed!", subtitle="Job sent successfully", footer="", visible=True)
+                        # Return to attract after successful print
+                        Clock.schedule_once(lambda _dt: self._cancel_session(), 3.0)
+                Clock.schedule_once(after_print, 0)
+
+            threading.Thread(target=run_print, daemon=True).start()
+
+        Clock.schedule_once(start_printing, 0.5)
     
     def _animate_print_slidedown(self):
         """Animate the composed template sliding down like paper from printer"""
@@ -1399,10 +1414,16 @@ class PhotoboothApp(App):
         # Store original position
         original_y = a4_bg.y
         
-        # Slide down animation (2 seconds) - slide completely off screen
+        # Cancel any existing animations on the same widget for smoothness
+        try:
+            Animation.cancel_all(a4_bg)
+        except Exception:
+            pass
+
+        # Slide down animation - slide completely off screen
         print("[DEBUG] Animating template slide-down...")
         target_y = -a4_bg.height  # Slide completely off bottom
-        anim = Animation(y=target_y, duration=5.0, t='in_out_quad')
+        anim = Animation(y=target_y, duration=5.0, t='out_cubic')
         
         def on_complete(*_):
             # Reset position and hide after animation
