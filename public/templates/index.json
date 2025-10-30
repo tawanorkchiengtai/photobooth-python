@@ -15,6 +15,30 @@
     ]
   },
   {
+    "id": "template2_two_slots",
+    "name": "Newspaper Two Slots",
+    "slots": 2,
+    "background": "templates/template2.png",
+    "vintage_effect": false,
+    "rects": [
+      { "leftPct": 6, "topPct": 10, "widthPct": 88, "heightPct": 40 },
+      { "leftPct": 6, "topPct": 52, "widthPct": 88, "heightPct": 40 }
+    ]
+  },
+  {
+    "id": "template4_four_slots",
+    "name": "Newspaper Four Slots",
+    "slots": 4,
+    "background": "templates/template4.png",
+    "vintage_effect": false,
+    "rects": [
+      { "leftPct": 6, "topPct": 12, "widthPct": 41, "heightPct": 32 },
+      { "leftPct": 53, "topPct": 12, "widthPct": 41, "heightPct": 32 },
+      { "leftPct": 6, "topPct": 54, "widthPct": 41, "heightPct": 32 },
+      { "leftPct": 53, "topPct": 54, "widthPct": 41, "heightPct": 32 }
+    ]
+  },
+  {
     "id": "ex-template-test",
     "name": "Ex Template 3",
     "slots": 1,
