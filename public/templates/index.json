@@ -21,8 +21,18 @@
     "background": "templates/template2.png",
     "vintage_effect": false,
     "rects": [
-      { "leftPct": 6, "topPct": 10, "widthPct": 88, "heightPct": 40 },
-      { "leftPct": 6, "topPct": 52, "widthPct": 88, "heightPct": 40 }
+      {
+        "leftPct": 1.58,
+        "topPct": 21.58,
+        "widthPct": 43.42,
+        "heightPct": 20.64
+      },
+      {
+        "leftPct": 54.67,
+        "topPct": 44.34,
+        "widthPct": 43.58,
+        "heightPct": 20.58
+      }
     ]
   },
   {
@@ -32,30 +42,15 @@
     "background": "templates/template4.png",
     "vintage_effect": false,
     "rects": [
-      { "leftPct": 6, "topPct": 12, "widthPct": 41, "heightPct": 32 },
-      { "leftPct": 53, "topPct": 12, "widthPct": 41, "heightPct": 32 },
-      { "leftPct": 6, "topPct": 54, "widthPct": 41, "heightPct": 32 },
-      { "leftPct": 53, "topPct": 54, "widthPct": 41, "heightPct": 32 }
+      {
+        "leftPct": 1.5,
+        "topPct": 21.58,
+        "widthPct": 97.08,
+        "heightPct": 45.87
+      },
+      { "leftPct": 2, "topPct": 76.9, "widthPct": 21.5, "heightPct": 10.26 },
+      { "leftPct": 2, "topPct": 87.3, "widthPct": 21.5, "heightPct": 10.26 },
+      { "leftPct": 50.33, "topPct": 79.3, "widthPct": 37.5, "heightPct": 17.81 }
     ]
-  },
-  {
-    "id": "ex-template-test",
-    "name": "Ex Template 3",
-    "slots": 1,
-    "background": "templates/template-test2.png",
-    "vintage_effect": false
-  },
-  {
-    "id": "washington_post_single",
-    "name": "Washington Post Front Page",
-    "slots": 1,
-    "background": "templates/ex-template-test.jpg",
-    "vintage_effect": false
-  },
-  {
-    "id": "single_full",
-    "name": "Single Full (No Background)",
-    "slots": 1,
-    "vintage_effect": false
   }
 ]
