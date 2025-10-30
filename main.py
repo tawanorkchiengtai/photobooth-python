@@ -87,6 +87,9 @@ PANEL_BORDER = (1, 1, 1, 0.12)
 ACCENT = (0.22, 0.65, 1.0, 1)
 RADIUS = 12
 
+# Toggle HUD visibility for customer-facing mode
+SHOW_HUD = False
+
 GPIO_NEXT = 17
 GPIO_ENTER = 27
 GPIO_PREV = 22
@@ -250,7 +253,10 @@ class PhotoboothRoot(FloatLayout):
         )
         self.hud.bind(texture_size=self.hud.setter('size'))
         self.add_widget(self.hud)
-        self._decorate_panel(self.hud)
+        if not SHOW_HUD:
+            self.hud.opacity = 0
+        else:
+            self._decorate_panel(self.hud)
 
         # Status bar (top-right): camera, printer, settings hint - back to landscape
         self.status = Label(
@@ -331,6 +337,8 @@ class PhotoboothRoot(FloatLayout):
         # No panel decoration for selection grid; keep background clean
 
     def update_hud(self, state: ScreenState, filter_name: str, template_name: str, remaining: int):
+        if not SHOW_HUD:
+            return
         self.hud_text = f"State: {state} • Filter: {filter_name} • Template: {template_name} • Remaining: {max(remaining,0)}"
         self.hud.text = self.hud_text
 
