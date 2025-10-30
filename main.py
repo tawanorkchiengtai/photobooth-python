@@ -1650,6 +1650,21 @@ class PhotoboothApp(App):
         # Hide countdown display
         self.root_widget.hide_countdown()
         
+        # Ensure the background template view is restored (in case slide animation/quick review hid it)
+        try:
+            from kivy.animation import Animation as KAnim
+            try:
+                KAnim.cancel_all(self.root_widget.a4_bg)
+            except Exception:
+                pass
+            # Reset A4 background position/size and make it visible again
+            a4_x, a4_y, a4_w, a4_h = self.root_widget._a4_rect
+            self.root_widget.a4_bg.pos = (a4_x, a4_y)
+            self.root_widget.a4_bg.size = (a4_w, a4_h)
+            self.root_widget.a4_bg.opacity = 1
+        except Exception:
+            pass
+
         self.state = ScreenState.ATTRACT
         print(f"[DEBUG] State changed to: {self.state}")
         # # Re-setup GPIO when cancelling session
