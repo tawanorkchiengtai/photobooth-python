@@ -72,7 +72,7 @@ PREVIEW_W, PREVIEW_H = 1080, 1920  # Preview display size (portrait)
 
 # UI Layout for vertical screen (1440x2560)
 SCREEN_W, SCREEN_H = 1440, 2560  # Vertical screen dimensions
-BANNER_HEIGHT_RATIO = 0.08  # 8% of screen for FILMOLA banner (~205px)
+BANNER_HEIGHT_RATIO = 0.2047  # 20.47% of screen for FILMOLA banner (~205px)
 BANNER_FONT_SIZE = 48  # Font size for FILMOLA text
 
 # Template display sizes (matching templates/index.html)
@@ -337,7 +337,7 @@ class PhotoboothRoot(FloatLayout):
         try:
             # Prefer banner2.jpg, fallback to banner.png
             candidates = [
-                Path(__file__).parent / "public/banner3.jpg",
+                Path(__file__).parent / "public/banner.jpg",
                 # Path(__file__).parent / "public/banner.png",
             ]
             img_path = next((p for p in candidates if p.exists()), None)
@@ -876,7 +876,7 @@ class PhotoboothApp(App):
                     # display_frame = cv2.resize(cropped_frame, (1833, 2592))
                     
                     # # Rotate 90 degrees for portrait display
-                    # rotated_frame = cv2.rotate(display_frame, cv2.ROTATE_90_CLOCKWISE)
+                    rotated_frame = cv2.rotate(full_frame, cv2.ROTATE_180)
                     
                     # # Fix color channel swapping for preview only (RGB to BGR)
                     # rotated_frame = rotated_frame[:, :, ::-1]  # Reverse RGB to BGR for display
@@ -907,7 +907,7 @@ class PhotoboothApp(App):
                     # # Step 5: No resize - use cropped frame directly
                     # if self._frame_count == 1:
                     #     print(f"[DEBUG] Step 5: No resize - using cropped frame directly")
-                    preview_frame = full_frame
+                    preview_frame = rotated_frame
                     
                     if self._frame_count == 1:
                         print(f"[DEBUG] Step 5: Preview shape: {preview_frame.shape}, dtype: {preview_frame.dtype}")
@@ -1253,7 +1253,7 @@ class PhotoboothApp(App):
                 
                 # Step 2: Rotate image 90 degrees counterclockwise
                 # print(f"[DEBUG CAPTURE] Step 2: Rotating 90 degrees...")
-                # rotated_arr = cv2.rotate(arr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                rotated_arr = cv2.rotate(arr, cv2.ROTATE_180)
                 # print(f"[DEBUG CAPTURE] Step 2: Rotated shape: {rotated_arr.shape}")
 
                 # # Step 3: Crop center area (100% width, 40% height) - no resize
@@ -1264,12 +1264,12 @@ class PhotoboothApp(App):
                 # start_x = (w - crop_w) // 2
                 # start_y = (h - crop_h) // 2
                 
-                # cropped_arr = rotated_arr[start_y:start_y+crop_h, start_x:start_x+crop_w]
+                cropped_arr = rotated_arr[start_y:start_y+crop_h, start_x:start_x+crop_w]
                 # print(f"[DEBUG CAPTURE] Step 3: Cropped shape: {cropped_arr.shape}")
 
                 # Step 3: Use full image (no cropping, no resizing)
                 print(f"[DEBUG CAPTURE] Step 3: Using full captured image...")
-                captured_arr = arr
+                captured_arr = cropped_arr
                 print(f"[DEBUG CAPTURE] Step 3: Final shape: {captured_arr.shape}")
                 
                 # Step 4: Fix color channel swapping for capture (RGB to BGR)
@@ -1513,7 +1513,7 @@ class PhotoboothApp(App):
                         print("[DEBUG] Print job sent successfully")
                         self.root_widget.set_overlay(title="Printed!", subtitle="Job sent successfully", footer="", visible=True)
                         # Return to attract after successful print
-                        Clock.schedule_once(lambda _dt: self._cancel_session(), 3.0)
+                        Clock.schedule_once(lambda _dt: self._cancel_session(), 10.0)
                 Clock.schedule_once(after_print, 0)
 
             threading.Thread(target=run_print, daemon=True).start()
@@ -1542,7 +1542,7 @@ class PhotoboothApp(App):
         # Slide down animation - slide completely off screen
         print("[DEBUG] Animating template slide-down...")
         target_y = -a4_bg.height  # Slide completely off bottom
-        anim = Animation(y=target_y, duration=5.0, t='out_cubic')
+        anim = Animation(y=target_y, duration=10.0, t='out_cubic')
         
         def on_complete(*_):
             # Reset position and hide after animation
