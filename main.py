@@ -153,6 +153,8 @@ class PhotoboothRoot(FloatLayout):
         # Blur backdrop for selection phase
         self.blur_bg = KivyImage(allow_stretch=True, keep_ratio=True, opacity=0, size_hint=(None, None))
         self.add_widget(self.blur_bg)
+        # Cache for blurred background per screen size
+        self._blur_cache = None  # (screen_w, screen_h, Texture)
         
         # Dim overlay for selection phase
         from kivy.uix.widget import Widget
@@ -410,7 +412,7 @@ class PhotoboothRoot(FloatLayout):
         self.subtitle.opacity = 1 if visible and subtitle else 0
         self.footer.opacity = 1 if visible and footer else 0
 
-    def show_selection(self, thumbs: List[Texture], cursor_index: int, selected_indices: List[int], template_slots: int):
+    def show_selection(self, thumbs: List[Texture], cursor_index: int, selected_indices: List[int], template_slots: int, animate: bool = True):
         """Display photos in grid layout with numbered selection markers"""
         from kivy.uix.image import Image as KImg
         from kivy.uix.gridlayout import GridLayout
@@ -475,17 +477,16 @@ class PhotoboothRoot(FloatLayout):
                 img.color = (0.5, 0.5, 0.5, 0.7)
 
             # Animate scale for cursor vs others (keeps layout intact)
-            try:
-                from kivy.animation import Animation as KAnim
-                target = 1.2 if i == cursor_index else 1.0
-                # start from current to target for smooth transition
-                KAnim(size_hint_x=target, size_hint_y=target, d=0.18 if target > 1.0 else 0.12, t='out_cubic').start(img)
-            except Exception:
-                # Fallback: set instantly
-                if i == cursor_index:
-                    img.size_hint = (1.2, 1.2)
-                else:
-                    img.size_hint = (1, 1)
+            if animate:
+                try:
+                    from kivy.animation import Animation as KAnim
+                    target = 1.2 if i == cursor_index else 1.0
+                    # start from current to target for smooth transition
+                    KAnim(size_hint_x=target, size_hint_y=target, d=0.12, t='out_cubic').start(img)
+                except Exception:
+                    img.size_hint = (1.2, 1.2) if i == cursor_index else (1, 1)
+            else:
+                img.size_hint = (1.2, 1.2) if i == cursor_index else (1, 1)
 
             cell.add_widget(img)
             grid.add_widget(cell)
@@ -647,6 +648,14 @@ class PhotoboothRoot(FloatLayout):
             from PIL import ImageFilter
             from kivy.core.window import Window
             
+            # Use cached blur if screen size hasn't changed
+            screen_w, screen_h = Window.size
+            if self._blur_cache and self._blur_cache[0:2] == (screen_w, screen_h):
+                self.blur_bg.texture = self._blur_cache[2]
+                self.blur_bg.opacity = 1
+                print("[DEBUG] Using cached full-screen blur background")
+                return
+            
             # Create a screenshot-like blur of the entire screen
             # Use the A4 background texture if available, otherwise create a solid color
             if self.a4_bg.texture:
@@ -657,16 +666,15 @@ class PhotoboothRoot(FloatLayout):
                 img = Image.frombytes('RGB', (w,h), buf, 'raw', 'RGB', 0, 1).transpose(Image.FLIP_TOP_BOTTOM)
             else:
                 # Create a solid dark background
-                screen_w, screen_h = Window.size
                 img = Image.new('RGB', (screen_w, screen_h), (40, 40, 40))  # Dark gray
             
             # Create full-screen blur texture
-            screen_w, screen_h = Window.size
             
             # Resize template to screen size and blur
             screen_img = img.resize((screen_w, screen_h), Image.BILINEAR)
-            small = screen_img.resize((max(1, screen_w//4), max(1, screen_h//4)), Image.BILINEAR)
-            blurred_small = small.filter(ImageFilter.GaussianBlur(12))  # Stronger blur
+            # Heavier downsample first for performance on Pi
+            small = screen_img.resize((max(1, screen_w//6), max(1, screen_h//6)), Image.BILINEAR)
+            blurred_small = small.filter(ImageFilter.GaussianBlur(10))
             blur = blurred_small.resize((screen_w, screen_h), Image.BILINEAR)
             
             # Create texture for full screen
@@ -676,6 +684,8 @@ class PhotoboothRoot(FloatLayout):
             
             self.blur_bg.texture = out
             self.blur_bg.opacity = 1
+            # Cache the computed blur
+            self._blur_cache = (screen_w, screen_h, out)
             print("[DEBUG] Full-screen blur background shown")
         except Exception as e:
             print(f"[DEBUG] Error showing blur: {e}")
@@ -719,6 +729,8 @@ class PhotoboothApp(App):
         self.selected_indices: List[int] = []
         self.selection_cursor = 0
         self.last_composed_path: Optional[Path] = None
+        # Cache thumbnails to avoid reloading/resizing on every selection move (critical on Pi)
+        self.thumb_cache: dict[Path, Texture] = {}
 
         self.printer_name = ""
         self._load_printer_name()
@@ -828,8 +840,8 @@ class PhotoboothApp(App):
             raise RuntimeError("No camera backend available. Install picamera2 (Pi) or opencv-python (Mac)")
 
     def _update_preview(self, *_):
-        # Skip heavy preview work while printing to keep animations smooth
-        if self.state == ScreenState.PRINTING:
+        # Skip heavy preview work while not needed to keep UI smooth on Pi
+        if self.state in (ScreenState.SELECTION, ScreenState.REVIEW, ScreenState.PRINTING):
             return
         try:
             if self.use_opencv:
@@ -1334,25 +1346,28 @@ class PhotoboothApp(App):
         selected = len(self.selected_indices)
         self.root_widget.hud.text = f"Selection: choose {n} • cursor {cursor}/{len(self.captures)} • selected {selected}/{n}"
         
-        # Build thumbnail textures for selection UI
+        # Build thumbnail textures for selection UI (cached for performance)
         thumbs: List[Texture] = []
         for p in self.captures:
             try:
-                img = Image.open(p).convert("RGB")
-                # make thumb
-                tw, th = 480, 320
-                scale = min(tw / img.width, th / img.height)
-                nw, nh = int(img.width * scale), int(img.height * scale)
-                thumb = img.resize((nw, nh), Image.LANCZOS)
-                tex = Texture.create(size=thumb.size, colorfmt='rgb')
-                tex.blit_buffer(thumb.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
-                tex.flip_vertical()
+                tex = self.thumb_cache.get(p)
+                if tex is None:
+                    img = Image.open(p).convert("RGB")
+                    # make thumb smaller with faster filter for Pi
+                    tw, th = 360, 240
+                    scale = min(tw / img.width, th / img.height)
+                    nw, nh = int(img.width * scale), int(img.height * scale)
+                    thumb = img.resize((nw, nh), Image.BILINEAR)
+                    tex = Texture.create(size=thumb.size, colorfmt='rgb')
+                    tex.blit_buffer(thumb.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+                    tex.flip_vertical()
+                    self.thumb_cache[p] = tex
                 thumbs.append(tex)
             except Exception:
                 continue
         
-        # Show selection grid with blur background
-        self.root_widget.show_selection(thumbs, self.selection_cursor, self.selected_indices, n)
+        # Show selection grid with blur background (enable animation on all platforms)
+        self.root_widget.show_selection(thumbs, self.selection_cursor, self.selected_indices, n, animate=True)
 
     def _compose_and_show(self):
         print(f"[DEBUG] Composing image with {len(self.selected_indices)} photos")
