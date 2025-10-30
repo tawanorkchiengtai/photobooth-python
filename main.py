@@ -328,7 +328,7 @@ class PhotoboothRoot(FloatLayout):
         )
         self.selection_box.opacity = 0
         self.add_widget(self.selection_box)
-        self._decorate_panel(self.selection_box, pad=(12, 12), radius=14)
+        # No panel decoration for selection grid; keep background clean
 
     def update_hud(self, state: ScreenState, filter_name: str, template_name: str, remaining: int):
         self.hud_text = f"State: {state} • Filter: {filter_name} • Template: {template_name} • Remaining: {max(remaining,0)}"
@@ -393,6 +393,25 @@ class PhotoboothRoot(FloatLayout):
 
     def show_quick_texture(self, tex: Texture, seconds: Optional[float] = 1.2):
         self.quick.texture = tex
+        # Constrain quick preview to the A4 area so it doesn't cover the bottom banner
+        try:
+            a4_x, a4_y, a4_w, a4_h = self._a4_rect
+            # Fit quick image within A4 with some padding
+            pad_scale = 0.78
+            q_w = int(a4_w * pad_scale)
+            q_h = int(a4_h * pad_scale)
+            self.quick.size_hint = (None, None)
+            self.quick.size = (q_w, q_h)
+            # Move the quick preview slightly upward within the A4 area
+            x_pos = a4_x + (a4_w - q_w) // 2
+            base_y = a4_y + (a4_h - q_h) // 2
+            y_offset = int(a4_h * 0.70)  # shift up by 10% of A4 height
+            y_pos = min(base_y + y_offset, a4_y + a4_h - q_h)
+            self.quick.pos = (x_pos, y_pos)
+        except Exception:
+            # Fallback to centered sizing
+            self.quick.size_hint = (0.8, 0.8)
+            self.quick.pos_hint = {'center_x': 0.5, 'center_y': 0.8}
         self.quick.opacity = 1
         if seconds:
             Clock.schedule_once(lambda *_: self.hide_quick(), seconds)
@@ -555,9 +574,19 @@ class PhotoboothRoot(FloatLayout):
         self.a4_bg.pos = (a4_x, a4_y)
         self.a4_bg.size = (a4_w, a4_h)
         
-        # Blur backdrop covers entire screen
         self.blur_bg.pos = (0, 0)
         self.blur_bg.size = (Ww, Wh)
+        # # Blur backdrop and dim overlay must NOT cover the bottom banner area
+        # overlay_pos = (0, banner_h)
+        # overlay_size = (Ww, Wh - banner_h)
+        # self.blur_bg.pos = overlay_pos
+        # self.blur_bg.size = overlay_size
+        # # Also position the dim widget to exclude the banner
+        # try:
+        #     self.dim.pos = overlay_pos
+        #     self.dim.size = overlay_size
+        # except Exception:
+        #     pass
         
         # Default preview to A4 area (unless custom position is set)
         if self._custom_camera_pos is None:
@@ -1169,6 +1198,21 @@ class PhotoboothApp(App):
         self.selected_indices.clear()
         self.taken_count = 0
         self.to_take = self.current_template["slots"] + 2
+        # Reset thumbnail cache for a fresh capture set
+        try:
+            self.thumb_cache.clear()
+        except Exception:
+            pass
+        # Always start from template1
+        try:
+            for i, t in enumerate(self.templates):
+                if t.get("id") == "template1":
+                    self.template_index = i
+                    self.current_template = t
+                    self.current_display_w, self.current_display_h = self._get_template_display_size(t)
+                    break
+        except Exception:
+            pass
         self.state = ScreenState.TEMPLATE
         print(f"[DEBUG] State changed to: {self.state}")
         # # Re-setup GPIO when starting session
@@ -1345,6 +1389,13 @@ class PhotoboothApp(App):
         cursor = self.selection_cursor + 1
         selected = len(self.selected_indices)
         self.root_widget.hud.text = f"Selection: choose {n} • cursor {cursor}/{len(self.captures)} • selected {selected}/{n}"
+        # Update on-screen overlay so count appears under the instruction line
+        self.root_widget.set_overlay(
+            title=f"Choose {n} photo(s)",
+            subtitle=f"Prev/Next to move • Shutter to Select/Deselect\nSelected {selected} / {n}",
+            footer="",
+            visible=True,
+        )
         
         # Build thumbnail textures for selection UI (cached for performance)
         thumbs: List[Texture] = []
@@ -1610,6 +1661,21 @@ class PhotoboothApp(App):
         self.taken_count = 0
         self.to_take = 0
         self.last_composed_path = None
+        # Clear cached thumbnails since capture set is discarded
+        try:
+            self.thumb_cache.clear()
+        except Exception:
+            pass
+        # Reset to template1 for next session
+        try:
+            for i, t in enumerate(self.templates):
+                if t.get("id") == "template1":
+                    self.template_index = i
+                    self.current_template = t
+                    self.current_display_w, self.current_display_h = self._get_template_display_size(t)
+                    break
+        except Exception:
+            pass
         self._update_hud()
         self._show_attract()
 
@@ -1660,6 +1726,14 @@ class PhotoboothApp(App):
             footer="",
             visible=True,
         )
+        # Restore default overlay positions/sizes after selection screen
+        try:
+            self.root_widget.title.font_size = 48
+            self.root_widget.subtitle.font_size = 20
+            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
+            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+        except Exception:
+            pass
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
         self.root_widget.hide_dim()
@@ -1683,6 +1757,14 @@ class PhotoboothApp(App):
             footer="Press Shutter to confirm",
             visible=True,
         )
+        # Restore default overlay positions/sizes after selection screen
+        try:
+            self.root_widget.title.font_size = 48
+            self.root_widget.subtitle.font_size = 20
+            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
+            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+        except Exception:
+            pass
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
         self.root_widget.hide_dim()
@@ -1719,6 +1801,14 @@ class PhotoboothApp(App):
         
         # Clear text overlays (countdown number will be shown instead)
         self.root_widget.set_overlay("", "", "")
+        # Restore default overlay positions/sizes after selection screen
+        try:
+            self.root_widget.title.font_size = 48
+            self.root_widget.subtitle.font_size = 20
+            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
+            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+        except Exception:
+            pass
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
         self.root_widget.hide_dim()
@@ -1738,12 +1828,30 @@ class PhotoboothApp(App):
         # Show dim overlay for better contrast
         self.root_widget.show_dim(alpha=0.5)
         
+        selected = len(self.selected_indices)
         self.root_widget.set_overlay(
             title=f"Choose {need} photo(s)",
-            subtitle="Prev/Next to move • Shutter to Select/Deselect",
-            footer=f"Selected {len(self.selected_indices)} / {need}",
+            subtitle=f"Prev/Next to move • Shutter to Select/Deselect\nSelected {selected} / {need}",
+            footer="",
             visible=True,
         )
+        # Move overlay to the top and enlarge for better visibility with many thumbnails
+        try:
+            self.root_widget.title.font_size = 72
+            self.root_widget.subtitle.font_size = 24
+            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.95}
+            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.90}
+            # Bring labels to front so they are not covered by the selection panel
+            parent = self.root_widget
+            try:
+                parent.remove_widget(self.root_widget.title)
+                parent.add_widget(self.root_widget.title)
+                parent.remove_widget(self.root_widget.subtitle)
+                parent.add_widget(self.root_widget.subtitle)
+            except Exception:
+                pass
+        except Exception:
+            pass
         self.root_widget.hide_quick()
 
     def _show_review(self):
@@ -1760,6 +1868,14 @@ class PhotoboothApp(App):
             footer="Press Enter to print",
             visible=True,
         )
+        # Restore default overlay positions/sizes after selection screen
+        try:
+            self.root_widget.title.font_size = 48
+            self.root_widget.subtitle.font_size = 20
+            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
+            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+        except Exception:
+            pass
 
     def on_stop(self):
         """Clean up camera resources when app stops"""
