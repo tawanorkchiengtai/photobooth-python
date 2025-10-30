@@ -530,7 +530,7 @@ class PhotoboothRoot(FloatLayout):
                         font_size=max(18, int(badge_size * 0.58)),
                         size_hint=(None, None),
                         size=(badge_size, badge_size),
-                        pos_hint={'x': 0.02, 'top': 0.98},
+                        pos_hint={'center_x': 0.5, 'center_y': 0.5},
                         halign='center',
                         valign='middle'
                     )
