@@ -90,6 +90,9 @@ RADIUS = 12
 # Toggle HUD visibility for customer-facing mode
 SHOW_HUD = False
 
+# Optional vintage font (put your TTF at public/fonts/vintage.ttf)
+VINTAGE_FONT_PATH = Path(__file__).parent / "public/fonts/vintage.otf"
+
 GPIO_NEXT = 17
 GPIO_ENTER = 27
 GPIO_PREV = 22
@@ -214,16 +217,31 @@ class PhotoboothRoot(FloatLayout):
                                   halign='left', valign='middle')
         self.banner_left.bind(size=self.banner_left.setter('text_size'))
         left.add_widget(self.banner_left)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.banner_left.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         self.banner_center = Label(text="All the Portrait That's Fit to Print", font_size=20, color=(1, 1, 1, 0.78),
                                     halign='center', valign='middle')
         self.banner_center.bind(size=self.banner_center.setter('text_size'))
         center.add_widget(self.banner_center)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.banner_center.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         self.banner_right = Label(text="Settings (O)", font_size=18, color=(1, 1, 1, 0.7),
                                    halign='right', valign='middle')
         self.banner_right.bind(size=self.banner_right.setter('text_size'))
         right.add_widget(self.banner_right)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.banner_right.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         self.banner.add_widget(left)
         self.banner.add_widget(center)
@@ -257,6 +275,11 @@ class PhotoboothRoot(FloatLayout):
             self.hud.opacity = 0
         else:
             self._decorate_panel(self.hud)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.hud.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         # Status bar (top-right): camera, printer, settings hint - back to landscape
         self.status = Label(
@@ -271,6 +294,11 @@ class PhotoboothRoot(FloatLayout):
         self.status.bind(texture_size=self.status.setter('size'))
         self.add_widget(self.status)
         self._decorate_panel(self.status)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.status.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         # Countdown number display - dramatic styling
         self.countdown = Label(
@@ -282,6 +310,11 @@ class PhotoboothRoot(FloatLayout):
         )
         self.countdown.opacity = 0
         self.add_widget(self.countdown)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.countdown.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         # Center image overlay (quick review or composed image)
         self.quick = KivyImage(
@@ -300,19 +333,29 @@ class PhotoboothRoot(FloatLayout):
             font_size=48,  # Larger, bolder title
             bold=True,
             color=(1, 1, 1, 1),
-            pos_hint={'center_x': 0.5, 'center_y': 0.74}
+            pos_hint={'center_x': 0.5, 'center_y': 0.6}
         )
         self.title.opacity = 0
         self.add_widget(self.title)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.title.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         self.subtitle = Label(
             text="",
-            font_size=20,  # Back to normal font size
+            font_size=40,  # Back to normal font size
             color=(1, 1, 1, 1),
-            pos_hint={'center_x': 0.5, 'center_y': 0.66}
+            pos_hint={'center_x': 0.5, 'center_y': 0.55}
         )
         self.subtitle.opacity = 0
         self.add_widget(self.subtitle)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.subtitle.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         self.footer = Label(
             text="",
@@ -322,6 +365,11 @@ class PhotoboothRoot(FloatLayout):
         )
         self.footer.opacity = 0
         self.add_widget(self.footer)
+        if VINTAGE_FONT_PATH.exists():
+            try:
+                self.footer.font_name = str(VINTAGE_FONT_PATH)
+            except Exception:
+                pass
 
         # Selection thumbnails container (created on demand) - back to landscape
         # Use AnchorLayout to naturally center a GridLayout of thumbnails
@@ -534,6 +582,11 @@ class PhotoboothRoot(FloatLayout):
                         halign='center',
                         valign='middle'
                     )
+                    if VINTAGE_FONT_PATH.exists():
+                        try:
+                            badge.font_name = str(VINTAGE_FONT_PATH)
+                        except Exception:
+                            pass
                     badge.bind(size=lambda *_: setattr(badge, 'text_size', badge.size))
                     # Draw rounded background behind the number
                     with badge.canvas.before:
@@ -1126,7 +1179,7 @@ class PhotoboothApp(App):
         
         if action == "cancel":
             print("[DEBUG] Cancelling session...")
-            self._cancel_session()
+            self._cancel_session(show_toast=True)
             return
 
         if self.state == ScreenState.ATTRACT:
@@ -1162,7 +1215,7 @@ class PhotoboothApp(App):
                 return  # Ignore template changes during countdown
             elif action == "cancel":
                 print("[DEBUG] Cancelling session...")
-                self._cancel_session()
+                self._cancel_session(show_toast=True)
             return
 
         if self.state == ScreenState.QUICK_REVIEW:
@@ -1226,7 +1279,7 @@ class PhotoboothApp(App):
     def _check_inactivity(self, *_):
         if self.state != ScreenState.ATTRACT and (time.time() - self.last_input_ts) > INACTIVITY_SECONDS:
             print(f"[DEBUG] Inactivity timeout ({INACTIVITY_SECONDS}s), cancelling session")
-            self._cancel_session()
+            self._cancel_session(show_toast=False)
 
     def _start_session(self):
         print("[DEBUG] Starting new photobooth session")
@@ -1428,7 +1481,7 @@ class PhotoboothApp(App):
         # Update on-screen overlay so count appears under the instruction line
         self.root_widget.set_overlay(
             title=f"Choose {n} photo(s)",
-            subtitle=f"Prev/Next to move • Shutter to Select/Deselect\nSelected {selected} / {n}",
+            subtitle=f"Prev/Next to move | Shutter to Select/Deselect\nSelected {selected} / {n}",
             footer="",
             visible=True,
         )
@@ -1614,8 +1667,8 @@ class PhotoboothApp(App):
                     else:
                         print("[DEBUG] Print job sent successfully")
                         self.root_widget.set_overlay(title="Printed!", subtitle="Job sent successfully", footer="", visible=True)
-                        # Return to attract after successful print
-                        Clock.schedule_once(lambda _dt: self._cancel_session(), 10.0)
+                        # Return to attract after successful print (no cancel toast)
+                        Clock.schedule_once(lambda _dt: self._cancel_session(show_toast=False), 10.0)
                 Clock.schedule_once(after_print, 0)
 
             threading.Thread(target=run_print, daemon=True).start()
@@ -1672,7 +1725,7 @@ class PhotoboothApp(App):
         except Exception:
             self.printer_name = ""
 
-    def _cancel_session(self):
+    def _cancel_session(self, show_toast: bool = False):
         print("[DEBUG] Cancelling photobooth session")
         
         # Stop countdown timer if it's running
@@ -1727,8 +1780,17 @@ class PhotoboothApp(App):
                     break
         except Exception:
             pass
-        self._update_hud()
-        self._show_attract()
+        # Show optional toast then return to attract
+        if show_toast:
+            try:
+                self.root_widget.set_overlay(title="Session cancelled", subtitle="", footer="", visible=True)
+            except Exception:
+                pass
+            self._update_hud()
+            Clock.schedule_once(lambda *_: (self._show_attract(), self.root_widget.set_overlay("", "", "", True)), 1.2)
+        else:
+            self._update_hud()
+            self._show_attract()
 
     def _update_hud(self, to_take: Optional[int] = None):
         if to_take is not None:
@@ -1855,7 +1917,7 @@ class PhotoboothApp(App):
         # Restore default overlay positions/sizes after selection screen
         try:
             self.root_widget.title.font_size = 48
-            self.root_widget.subtitle.font_size = 20
+            self.root_widget.subtitle.font_size = 40
             self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
             self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
         except Exception:
@@ -1882,14 +1944,14 @@ class PhotoboothApp(App):
         selected = len(self.selected_indices)
         self.root_widget.set_overlay(
             title=f"Choose {need} photo(s)",
-            subtitle=f"Prev/Next to move • Shutter to Select/Deselect\nSelected {selected} / {need}",
+            subtitle=f"Prev/Next to move | Shutter to Select/Deselect\nSelected {selected} / {need}",
             footer="",
             visible=True,
         )
         # Move overlay to the top and enlarge for better visibility with many thumbnails
         try:
             self.root_widget.title.font_size = 72
-            self.root_widget.subtitle.font_size = 24
+            self.root_widget.subtitle.font_size = 60
             self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.95}
             self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.90}
             # Bring labels to front so they are not covered by the selection panel
@@ -1922,9 +1984,9 @@ class PhotoboothApp(App):
         # Restore default overlay positions/sizes after selection screen
         try:
             self.root_widget.title.font_size = 48
-            self.root_widget.subtitle.font_size = 20
+            self.root_widget.subtitle.font_size = 40
             self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
-            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.6}
         except Exception:
             pass
 
