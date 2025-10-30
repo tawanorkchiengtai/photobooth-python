@@ -1,0 +1,21 @@
+{
+  "id": "measured_template",
+  "name": "Measured Template",
+  "slots": 2,
+  "background": "path/to/your/template.png",
+  "vintage_effect": false,
+  "rects": [
+    {
+      "leftPct": 1.5,
+      "topPct": 21.64,
+      "widthPct": 43.25,
+      "heightPct": 20.46
+    },
+    {
+      "leftPct": 54.83,
+      "topPct": 44.52,
+      "widthPct": 42.83,
+      "heightPct": 20.05
+    }
+  ]
+}
