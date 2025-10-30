@@ -1735,20 +1735,20 @@ class PhotoboothApp(App):
             import traceback
             traceback.print_exc()
 
-        self.root_widget.set_overlay(
-            title="Pay attendant to start!",
-            subtitle="Press Shutter button to begin",
-            footer="",
-            visible=True,
-        )
-        # Restore default overlay positions/sizes after selection screen
-        try:
-            self.root_widget.title.font_size = 48
-            self.root_widget.subtitle.font_size = 20
-            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
-            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
-        except Exception:
-            pass
+        # self.root_widget.set_overlay(
+        #     title="Pay attendant to start!",
+        #     subtitle="Press Shutter button to begin",
+        #     footer="",
+        #     visible=True,
+        # )
+        # # Restore default overlay positions/sizes after selection screen
+        # try:
+        #     self.root_widget.title.font_size = 48
+        #     self.root_widget.subtitle.font_size = 20
+        #     self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
+        #     self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+        # except Exception:
+        #     pass
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
         self.root_widget.hide_dim()
@@ -1766,20 +1766,20 @@ class PhotoboothApp(App):
         # Hide camera preview during template selection
         self.root_widget.preview.opacity = 0
         
-        self.root_widget.set_overlay(
-            title=f"Template: {self.current_template.get('name', 'Unknown')}",
-            subtitle=f"Prev/Next to change • {n+2} photos will be taken",
-            footer="Press Shutter to confirm",
-            visible=True,
-        )
-        # Restore default overlay positions/sizes after selection screen
-        try:
-            self.root_widget.title.font_size = 48
-            self.root_widget.subtitle.font_size = 20
-            self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
-            self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
-        except Exception:
-            pass
+        # self.root_widget.set_overlay(
+        #     title=f"Template: {self.current_template.get('name', 'Unknown')}",
+        #     subtitle=f"Prev/Next to change • {n+2} photos will be taken",
+        #     footer="Press Shutter to confirm",
+        #     visible=True,
+        # )
+        # # Restore default overlay positions/sizes after selection screen
+        # try:
+        #     self.root_widget.title.font_size = 48
+        #     self.root_widget.subtitle.font_size = 20
+        #     self.root_widget.title.pos_hint = {'center_x': 0.5, 'center_y': 0.74}
+        #     self.root_widget.subtitle.pos_hint = {'center_x': 0.5, 'center_y': 0.66}
+        # except Exception:
+        #     pass
         self.root_widget.hide_selection()
         self.root_widget.hide_quick()
         self.root_widget.hide_dim()
@@ -1880,7 +1880,7 @@ class PhotoboothApp(App):
         self.root_widget.set_overlay(
             title=f"Filter: {self.filter_name}",
             subtitle="Prev/Next to change filter",
-            footer="Press Enter to print",
+            footer="Press Enter to confirm",
             visible=True,
         )
         # Restore default overlay positions/sizes after selection screen
