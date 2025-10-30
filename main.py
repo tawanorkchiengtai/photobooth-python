@@ -445,7 +445,7 @@ class PhotoboothRoot(FloatLayout):
         from kivy.uix.gridlayout import GridLayout
         from kivy.uix.floatlayout import FloatLayout as KivyFloat
         from kivy.uix.label import Label
-        from kivy.graphics import Color, Rectangle, Line
+        from kivy.graphics import Color, Rectangle, Line, RoundedRectangle
         
         self.selection_box.clear_widgets()
         
@@ -516,6 +516,34 @@ class PhotoboothRoot(FloatLayout):
                 img.size_hint = (1.2, 1.2) if i == cursor_index else (1, 1)
 
             cell.add_widget(img)
+            
+            # If this photo is selected, show its selection order as a badge
+            if i in selected_indices:
+                try:
+                    order_num = selected_indices.index(i) + 1
+                    # Badge anchored to cell's top-left using pos_hint so it stays over the image
+                    badge_size = max(32, int(min(thumb_w, thumb_h) * 0.14))
+                    badge = Label(
+                        text=str(order_num),
+                        bold=True,
+                        color=(1, 1, 1, 1),
+                        font_size=max(18, int(badge_size * 0.58)),
+                        size_hint=(None, None),
+                        size=(badge_size, badge_size),
+                        pos_hint={'x': 0.02, 'top': 0.98},
+                        halign='center',
+                        valign='middle'
+                    )
+                    badge.bind(size=lambda *_: setattr(badge, 'text_size', badge.size))
+                    # Draw rounded background behind the number
+                    with badge.canvas.before:
+                        Color(0, 0, 0, 0.7)
+                        badge._bg = RoundedRectangle(radius=[badge_size/2], pos=badge.pos, size=badge.size)
+                    badge.bind(pos=lambda *_: setattr(badge._bg, "pos", badge.pos),
+                               size=lambda *_: setattr(badge._bg, "size", badge.size))
+                    cell.add_widget(badge)
+                except Exception:
+                    pass
             grid.add_widget(cell)
         self.selection_box.add_widget(grid)
         
