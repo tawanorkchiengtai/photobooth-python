@@ -527,7 +527,7 @@ class PhotoboothRoot(FloatLayout):
                         text=str(order_num),
                         bold=True,
                         color=(1, 1, 1, 1),
-                        font_size=max(18, int(badge_size * 0.58)),
+                        font_size=max(149, int(badge_size * 0.58)),
                         size_hint=(None, None),
                         size=(badge_size, badge_size),
                         pos_hint={'center_x': 0.5, 'center_y': 0.5},
