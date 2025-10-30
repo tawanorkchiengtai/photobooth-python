@@ -169,12 +169,60 @@ class PhotoboothRoot(FloatLayout):
         self.preview.size_hint = (None, None)
         self.add_widget(self.preview)
         
-        # Persistent FILMOLA banner at bottom
-        self.banner = BoxLayout(orientation='horizontal', size_hint=(1, None))
-        self.banner_bg = (0.1, 0.1, 0.1, 0.95)
-        self.banner_lbl = Label(text="FILMOLA", font_size=BANNER_FONT_SIZE, bold=True, color=(1,1,1,1))
-        self.banner.add_widget(self.banner_lbl)
+        # Persistent FILMOLA banner at bottom with enhanced styling
+        self.banner = BoxLayout(orientation='horizontal', size_hint=(1, None), padding=(22, 10), spacing=18)
+        # Decorative background + accent line
+        with self.banner.canvas.before:
+            Color(0.06, 0.06, 0.08, 0.98)
+            self._banner_bg_rect = Rectangle(pos=self.banner.pos, size=self.banner.size)
+        with self.banner.canvas.after:
+            # Accent top line and soft highlight
+            Color(ACCENT[0], ACCENT[1], ACCENT[2], 0.55)
+            self._banner_topline = Rectangle(pos=(self.banner.x, self.banner.y + self.banner.height - 2), size=(self.banner.width, 2))
+            Color(1, 1, 1, 0.06)
+            self._banner_highlight = Rectangle(pos=(self.banner.x, self.banner.y + self.banner.height - 8), size=(self.banner.width, 6))
+        def _sync_banner(*_):
+            self._banner_bg_rect.pos = self.banner.pos
+            self._banner_bg_rect.size = self.banner.size
+            x, y = self.banner.pos
+            w, h = self.banner.size
+            self._banner_topline.pos = (x, y + h - 2)
+            self._banner_topline.size = (w, 2)
+            self._banner_highlight.pos = (x, y + h - 8)
+            self._banner_highlight.size = (w, 6)
+        self.banner.bind(pos=_sync_banner, size=_sync_banner)
+
+        # Left / Center / Right content
+        from kivy.uix.boxlayout import BoxLayout as KivyHBox
+        left = KivyHBox(orientation='horizontal', size_hint=(0.33, 1), spacing=10)
+        center = KivyHBox(orientation='horizontal', size_hint=(0.34, 1))
+        right = KivyHBox(orientation='horizontal', size_hint=(0.33, 1))
+
+        self.banner_left = Label(text="FILMOLA", font_size=BANNER_FONT_SIZE, bold=True, color=(1, 1, 1, 1),
+                                  halign='left', valign='middle')
+        self.banner_left.bind(size=self.banner_left.setter('text_size'))
+        left.add_widget(self.banner_left)
+
+        self.banner_center = Label(text="All the Portrait That's Fit to Print", font_size=20, color=(1, 1, 1, 0.78),
+                                    halign='center', valign='middle')
+        self.banner_center.bind(size=self.banner_center.setter('text_size'))
+        center.add_widget(self.banner_center)
+
+        self.banner_right = Label(text="Settings (O)", font_size=18, color=(1, 1, 1, 0.7),
+                                   halign='right', valign='middle')
+        self.banner_right.bind(size=self.banner_right.setter('text_size'))
+        right.add_widget(self.banner_right)
+
+        self.banner.add_widget(left)
+        self.banner.add_widget(center)
+        self.banner.add_widget(right)
         self.add_widget(self.banner)
+
+        # Try replacing banner content with an image if available
+        try:
+            self._use_image_banner_if_available()
+        except Exception:
+            pass
         
         # Initialize layout
         self._compute_layout()
@@ -276,6 +324,48 @@ class PhotoboothRoot(FloatLayout):
     def update_hud(self, state: ScreenState, filter_name: str, template_name: str, remaining: int):
         self.hud_text = f"State: {state} • Filter: {filter_name} • Template: {template_name} • Remaining: {max(remaining,0)}"
         self.hud.text = self.hud_text
+
+    def _use_image_banner_if_available(self):
+        """Use a full-bleed banner image if available (no borders/margins)."""
+        try:
+            # Prefer banner2.jpg, fallback to banner.png
+            candidates = [
+                Path(__file__).parent / "public/banner2.jpg",
+                # Path(__file__).parent / "public/banner.png",
+            ]
+            img_path = next((p for p in candidates if p.exists()), None)
+            if not img_path:
+                return
+            pil = Image.open(str(img_path)).convert('RGB')
+            tex = Texture.create(size=pil.size, colorfmt='rgb')
+            tex.blit_buffer(pil.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+            tex.flip_vertical()
+            # Clear current banner children and add a full-bleed image
+            self.banner.clear_widgets()
+            # Remove all decorative canvas to avoid borders/lines
+            try:
+                self.banner.canvas.before.clear()
+                self.banner.canvas.after.clear()
+            except Exception:
+                pass
+            # Remove any padding/spacing so image fills exactly
+            try:
+                self.banner.padding = (0, 0)
+                self.banner.spacing = 0
+            except Exception:
+                pass
+            # Add image that stretches to fill banner area
+            self.banner_img = KivyImage(texture=tex, allow_stretch=True, keep_ratio=False, size_hint=(1, 1))
+            self.banner.add_widget(self.banner_img)
+            # Hide any stored refs to previous decorations
+            try:
+                self._banner_topline = None
+                self._banner_highlight = None
+                self._banner_bg_rect = None
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[DEBUG] Could not load banner image: {e}")
 
     def show_countdown(self, n: int):
         self.countdown_value = n
