@@ -182,14 +182,21 @@ class PhotoboothRoot(FloatLayout):
             Color(1, 1, 1, 0.06)
             self._banner_highlight = Rectangle(pos=(self.banner.x, self.banner.y + self.banner.height - 8), size=(self.banner.width, 6))
         def _sync_banner(*_):
-            self._banner_bg_rect.pos = self.banner.pos
-            self._banner_bg_rect.size = self.banner.size
-            x, y = self.banner.pos
-            w, h = self.banner.size
-            self._banner_topline.pos = (x, y + h - 2)
-            self._banner_topline.size = (w, 2)
-            self._banner_highlight.pos = (x, y + h - 8)
-            self._banner_highlight.size = (w, 6)
+            # Only update decorative shapes if they still exist
+            try:
+                if hasattr(self, '_banner_bg_rect') and self._banner_bg_rect is not None:
+                    self._banner_bg_rect.pos = self.banner.pos
+                    self._banner_bg_rect.size = self.banner.size
+                x, y = self.banner.pos
+                w, h = self.banner.size
+                if hasattr(self, '_banner_topline') and self._banner_topline is not None:
+                    self._banner_topline.pos = (x, y + h - 2)
+                    self._banner_topline.size = (w, 2)
+                if hasattr(self, '_banner_highlight') and self._banner_highlight is not None:
+                    self._banner_highlight.pos = (x, y + h - 8)
+                    self._banner_highlight.size = (w, 6)
+            except Exception:
+                pass
         self.banner.bind(pos=_sync_banner, size=_sync_banner)
 
         # Left / Center / Right content
@@ -330,7 +337,7 @@ class PhotoboothRoot(FloatLayout):
         try:
             # Prefer banner2.jpg, fallback to banner.png
             candidates = [
-                Path(__file__).parent / "public/banner2.jpg",
+                Path(__file__).parent / "public/banner3.jpg",
                 # Path(__file__).parent / "public/banner.png",
             ]
             img_path = next((p for p in candidates if p.exists()), None)
@@ -446,7 +453,7 @@ class PhotoboothRoot(FloatLayout):
         content_w = box_w * (0.58 if cols == 2 else 0.85)
         spacing_x = 12 if cols == 2 else 20
         spacing_y = 24
-        pad_x = 10
+        pad_x = 20
         pad_y = 10
         thumb_w = (content_w - (cols - 1) * spacing_x - 2 * pad_x) / max(cols, 1)
         thumb_h = (box_h - (rows - 1) * spacing_y - 2 * pad_y) / max(rows, 1)
