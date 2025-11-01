@@ -79,7 +79,7 @@ BANNER_FONT_SIZE = 48  # Font size for FILMOLA text
 TEMPLATE_DISPLAY_W = 2592  # Template display width
 TEMPLATE_DISPLAY_H = 1843  # Template display height
 INACTIVITY_SECONDS = 90
-COUNTDOWN_SECONDS = 10
+COUNTDOWN_SECONDS = 7
 
 # Simple theme
 PANEL_BG = (0, 0, 0, 0.35)
@@ -957,6 +957,21 @@ class PhotoboothApp(App):
         else:
             raise RuntimeError("No camera backend available. Install picamera2 (Pi) or opencv-python (Mac)")
 
+    def _apply_sepia_np(self, frame_rgb):
+        """Apply a light sepia tone to an RGB numpy image (H,W,3) uint8."""
+        try:
+            import numpy as _np
+            f = frame_rgb.astype(_np.float32)
+            # Sepia matrix for RGB
+            M = _np.array([[0.393, 0.769, 0.189],
+                           [0.349, 0.686, 0.168],
+                           [0.272, 0.534, 0.131]], dtype=_np.float32)
+            sep = f @ M.T
+            sep = _np.clip(sep, 0, 255).astype(_np.uint8)
+            return sep
+        except Exception:
+            return frame_rgb
+
     def _update_preview(self, *_):
         # Skip heavy preview work while not needed to keep UI smooth on Pi
         if self.state in (ScreenState.SELECTION, ScreenState.REVIEW, ScreenState.PRINTING):
@@ -968,6 +983,8 @@ class PhotoboothApp(App):
                     # Convert BGR to RGB and flip horizontally for mirror effect
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     frame = cv2.flip(frame, 1)
+                    if self.state == ScreenState.ATTRACT:
+                        frame = self._apply_sepia_np(frame)
                     self.root_widget.preview.show_frame(frame)
             else:
                 # Use try-catch for Picamera2 to handle buffer errors gracefully
@@ -1038,6 +1055,8 @@ class PhotoboothApp(App):
                     # if self._frame_count == 1:
                     #     print(f"[DEBUG] Step 5: No resize - using cropped frame directly")
                     preview_frame = rotated_frame
+                    if self.state == ScreenState.ATTRACT:
+                        preview_frame = self._apply_sepia_np(preview_frame)
                     
                     if self._frame_count == 1:
                         print(f"[DEBUG] Step 5: Preview shape: {preview_frame.shape}, dtype: {preview_frame.dtype}")
@@ -1286,7 +1305,7 @@ class PhotoboothApp(App):
         self.captures.clear()
         self.selected_indices.clear()
         self.taken_count = 0
-        self.to_take = self.current_template["slots"] + 2
+        self.to_take = self.current_template["slots"] + 1
         # Reset thumbnail cache for a fresh capture set
         try:
             self.thumb_cache.clear()
@@ -1323,8 +1342,8 @@ class PhotoboothApp(App):
         
         print(f"[DEBUG] Template changed from {old_index} to {self.template_index}: {self.current_template['name']}")
         print(f"[DEBUG] Display size updated to: {self.current_display_w}x{self.current_display_h}")
-        # Update toTake following N+2 rule (1->3, 2->4, 3->5)
-        self.to_take = self.current_template["slots"] + 2
+        # Update toTake following N+1 rule (1->2, 2->3, 4->5)
+        self.to_take = self.current_template["slots"] + 1
         self.taken_count = 0
         self._update_hud(to_take=self.to_take)
         # refresh overlays per state
@@ -1355,6 +1374,13 @@ class PhotoboothApp(App):
         # Show countdown UI with camera preview visible (like attract phase)
         self._show_countdown_ui()
         
+        # Progress text: Photo X of Y
+        try:
+            next_idx = (self.taken_count or 0) + 1
+            self.root_widget.set_overlay(title=f"Photo {next_idx} of {self.to_take}", subtitle="Get ready!", footer="", visible=True)
+        except Exception:
+            pass
+
         self.count_val = COUNTDOWN_SECONDS
         self.root_widget.show_countdown(self.count_val)
         self.count_ev = Clock.schedule_interval(self._countdown_tick, 1.0)
@@ -1645,7 +1671,7 @@ class PhotoboothApp(App):
         
         # After a short delay, kick off the print in a background thread to avoid blocking UI
         def start_printing(*_):
-            self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
+            # self.root_widget.set_overlay(title="Printing...", subtitle="Sending job to printer", footer="", visible=True)
             self.root_widget.hide_selection()
             args = ["lp"]
             if self.printer_name:
@@ -1697,7 +1723,7 @@ class PhotoboothApp(App):
         # Slide down animation - slide completely off screen
         print("[DEBUG] Animating template slide-down...")
         target_y = -a4_bg.height  # Slide completely off bottom
-        anim = Animation(y=target_y, duration=10.0, t='out_cubic')
+        anim = Animation(y=target_y, duration=15.0, t='out_cubic')
         
         def on_complete(*_):
             # Reset position and hide after animation
